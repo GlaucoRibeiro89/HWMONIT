@@ -118,4 +118,9 @@ services:
 
 networks:
   hwmonit_net:
+    name: hwmonit_net
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.255.255.0/24
+          gateway: 172.255.255.1
