@@ -1,9 +1,10 @@
 import os
 import ipaddress
 from collections import defaultdict
+from typing import Optional
 
 import pymysql
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 app = FastAPI(title="hwmonit_api", version="1.0.0")
@@ -26,6 +27,90 @@ def validate_ip(ip: str) -> str:
         return str(ipaddress.ip_address(ip))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"IP inválido: {ip}") from exc
+
+
+def parse_float_or_none(value) -> Optional[float]:
+    if value is None:
+        return None
+
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    value_str = str(value).strip()
+    if not value_str or value_str == "-":
+        return None
+
+    try:
+        return float(value_str)
+    except (TypeError, ValueError):
+        return None
+
+
+def load_allowed_api_ips():
+    """
+    Lê do .env:
+    ALLOWED_API_IPS=127.0.0.1,10.80.0.15,10.80.0.0/24
+
+    Aceita IP individual ou rede CIDR.
+    Se vazio, libera qualquer origem.
+    """
+    raw = os.getenv("ALLOWED_API_IPS", "").strip()
+    if not raw:
+        return []
+
+    allowed = []
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+
+        try:
+            if "/" in item:
+                allowed.append(ipaddress.ip_network(item, strict=False))
+            else:
+                allowed.append(ipaddress.ip_address(item))
+        except ValueError as exc:
+            raise RuntimeError(f"Valor inválido em ALLOWED_API_IPS: {item}") from exc
+
+    return allowed
+
+
+ALLOWED_API_IPS = load_allowed_api_ips()
+
+
+def is_ip_allowed(client_ip: str) -> bool:
+    if not ALLOWED_API_IPS:
+        return True
+
+    try:
+        ip_obj = ipaddress.ip_address(client_ip)
+    except ValueError:
+        return False
+
+    for entry in ALLOWED_API_IPS:
+        if isinstance(entry, (ipaddress.IPv4Address, ipaddress.IPv6Address)):
+            if ip_obj == entry:
+                return True
+        else:
+            if ip_obj in entry:
+                return True
+
+    return False
+
+
+@app.middleware("http")
+async def restrict_by_source_ip(request: Request, call_next):
+    client_ip = request.client.host if request.client else None
+
+    if not client_ip or not is_ip_allowed(client_ip):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "detail": f"Acesso negado para o IP de origem: {client_ip}"
+            },
+        )
+
+    return await call_next(request)
 
 
 @app.get("/health")
@@ -140,7 +225,7 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
 
         run_state = (row.get("run_state") or "").strip().lower()
         last_down_cause = (row.get("last_down_cause") or "").upper()
-        rx_power_dbm = row.get("rx_power_dbm")
+        rx_power_dbm = parse_float_or_none(row.get("rx_power_dbm"))
 
         is_online = run_state == "online"
         is_offline = run_state == "offline"
@@ -161,7 +246,7 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
             s["ont_loss"] += 1
 
         if rx_power_dbm is not None:
-            s["dbm_sum"] += float(rx_power_dbm)
+            s["dbm_sum"] += rx_power_dbm
             s["dbm_count"] += 1
 
         # agrega por pon
@@ -180,7 +265,7 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
             p["ont_loss"] += 1
 
         if rx_power_dbm is not None:
-            p["dbm_sum"] += float(rx_power_dbm)
+            p["dbm_sum"] += rx_power_dbm
             p["dbm_count"] += 1
 
     def sort_key_slot(item):
@@ -234,6 +319,7 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
         "slots": slots,
         "pons": pons,
     })
+
 
 @app.get("/api/v1/worst-power")
 def worst_power_onts(
