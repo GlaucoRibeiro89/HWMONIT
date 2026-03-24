@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+netmiko
+mysql-connector-python
+pydantic
+cryptography==44.0.2

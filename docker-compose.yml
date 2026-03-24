@@ -1,0 +1,121 @@
+services:
+  hwmonit_db:
+    cpus: "0.4"
+    mem_limit: 1024m
+    image: mysql:8.4
+    container_name: hwmonit-db
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks:
+      - hwmonit_net
+
+  hwmonit_collector:
+    cpus: "0.1"
+    mem_limit: 256m
+    build:
+      context: .
+      dockerfile: ./docker/collector.Dockerfile
+    container_name: hwmonit-collector
+    restart: unless-stopped
+    depends_on:
+      hwmonit_db:
+        condition: service_healthy
+    working_dir: /app
+    env_file:
+      - .env
+    volumes:
+      - ./:/app
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1', 8000)); s.close()\""]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+    command: ["python3", "-m", "uvicorn", "collector.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    networks:
+      - hwmonit_net
+
+  hwmonit_api:
+    cpus: "0.1"
+    mem_limit: 256m
+    build:
+      context: .
+      dockerfile: ./docker/api.Dockerfile
+    container_name: hwmonit-api
+    restart: unless-stopped
+    depends_on:
+      hwmonit_db:
+        condition: service_healthy
+    working_dir: /app
+    env_file:
+      - .env
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./:/app
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1', 8000)); s.close()\""]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+    command: ["python3", "-m", "uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    networks:
+      - hwmonit_net
+
+  hwmonit_housekeeper:
+    cpus: "0.1"
+    mem_limit: 256m
+    build:
+      context: .
+      dockerfile: ./docker/housekeeper.Dockerfile
+    container_name: hwmonit-housekeeper
+    restart: unless-stopped
+    depends_on:
+      hwmonit_db:
+        condition: service_healthy
+    env_file:
+      - .env
+    networks:
+      - hwmonit_net
+
+  hwmonit_orchestrator:
+    cpus: "0.1"
+    mem_limit: 256m
+    build:
+      context: .
+      dockerfile: ./docker/orchestrator.Dockerfile
+    container_name: hwmonit-orchestrator
+    restart: unless-stopped
+    depends_on:
+      hwmonit_collector:
+        condition: service_healthy
+      hwmonit_db:
+        condition: service_healthy
+    working_dir: /app
+    env_file:
+      - .env
+    volumes:
+      - ./:/app
+    command: ["python3", "-m", "orchestrator.orchestrator_service"]
+    networks:
+      - hwmonit_net
+
+
+networks:
+  hwmonit_net:
+    driver: bridge
