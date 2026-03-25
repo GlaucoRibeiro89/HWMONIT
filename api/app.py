@@ -31,6 +31,13 @@ def validate_ip(ip: str) -> str:
         raise HTTPException(status_code=400, detail=f"IP inválido: {ip}") from exc
 
 
+def validate_serial(serial: str) -> str:
+    value = (serial or "").strip().upper()
+    if not value:
+        raise HTTPException(status_code=400, detail="Serial inválido")
+    return value
+
+
 def parse_float_or_none(value) -> Optional[float]:
     if value is None:
         return None
@@ -46,6 +53,35 @@ def parse_float_or_none(value) -> Optional[float]:
         return float(value_str)
     except (TypeError, ValueError):
         return None
+
+
+def normalize_text(value) -> str:
+    if value is None:
+        return ""
+
+    return str(value).strip()
+
+
+def map_status_to_int(run_state: str) -> int:
+    value = normalize_text(run_state).lower()
+
+    if value == "offline":
+        return 0
+    if value == "online":
+        return 1
+
+    return -1
+
+
+def map_last_down_cause_to_int(last_down_cause: str) -> int:
+    value = normalize_text(last_down_cause).upper()
+
+    if "DYING" in value:
+        return 0
+    if "LOS" in value:
+        return 5
+
+    return -5
 
 
 def load_allowed_api_ips():
@@ -107,9 +143,7 @@ async def restrict_by_source_ip(request: Request, call_next):
     if not client_ip or not is_ip_allowed(client_ip):
         return JSONResponse(
             status_code=403,
-            content={
-                "detail": f"Acesso negado para o IP de origem: {client_ip}"
-            },
+            content={"detail": f"Acesso negado para o IP de origem: {client_ip}"},
         )
 
     return await call_next(request)
@@ -227,7 +261,6 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
         slot_path = f"{frame}/{slot}"
         ont_id = row.get("ont_id")
 
-        # garante que slot e PON apareçam mesmo sem ONTs reais
         s = slot_stats[slot_path]
         s["slot_path"] = slot_path
         s["frame"] = frame
@@ -239,7 +272,6 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
         p["slot"] = slot
         p["pon"] = pon
 
-        # linha sentinela da PON vazia: mantém a PON visível, mas não conta como ONT
         if ont_id == EMPTY_PON_SENTINEL_ONT_ID:
             continue
 
@@ -251,7 +283,6 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
         is_offline = run_state == "offline"
         is_loss = is_offline and ("LOS" in last_down_cause)
 
-        # agrega por slot
         s["ont_total"] += 1
 
         if is_online:
@@ -265,7 +296,6 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
             s["dbm_sum"] += rx_power_dbm
             s["dbm_count"] += 1
 
-        # agrega por pon
         p["ont_total"] += 1
 
         if is_online:
@@ -330,6 +360,64 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
         "slots": slots,
         "pons": pons,
     })
+
+
+@app.get("/api/v1/ont/by-serial")
+def ont_by_serial(
+    serial: str = Query(..., description="Serial da ONU/ONT"),
+    ip: Optional[str] = Query(None, description="IP da OLT para filtro opcional"),
+):
+    serial_normalized = validate_serial(serial)
+    olt_ip = validate_ip(ip) if ip else None
+
+    sql = """
+        SELECT
+            ip,
+            sn,
+            port,
+            run_state,
+            last_down_cause,
+            rx_power_dbm
+        FROM ont_status
+        WHERE UPPER(TRIM(sn)) = %s
+    """
+    params = [serial_normalized]
+
+    if olt_ip:
+        sql += " AND ip = %s"
+        params.append(olt_ip)
+
+    sql += " LIMIT 1"
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, tuple(params))
+                row = cursor.fetchone()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao consultar banco: {exc}") from exc
+
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail=f"ONU/ONT com serial {serial_normalized} não encontrada",
+        )
+
+    run_state = normalize_text(row.get("run_state"))
+    last_down_cause = normalize_text(row.get("last_down_cause"))
+
+    return JSONResponse(
+        content={
+            "ip": row.get("ip"),
+            "serial": row.get("sn"),
+            "port": row.get("port"),
+            "status": map_status_to_int(run_state),
+            "status_text": run_state,
+            "last_down_cause": map_last_down_cause_to_int(last_down_cause),
+            "last_down_cause_text": last_down_cause,
+            "rx_power_dbm": parse_float_or_none(row.get("rx_power_dbm")),
+        }
+    )
 
 
 @app.get("/api/v1/worst-power")
