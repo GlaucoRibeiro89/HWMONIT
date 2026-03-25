@@ -258,8 +258,19 @@ Exemplo de resposta:
   "last_down_cause_text": "LOS",
   "rx_power_dbm": -19.42
 }
-```
 
+Mapeamentos aplicados:
+
+status
+offline = 0
+online = 1
+outros = -1
+last_down_cause
+contém Dying = 0
+contém LOS = 5
+outros = -5
+
+```
 ---
 
 ## Comandos úteis
