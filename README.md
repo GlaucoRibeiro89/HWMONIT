@@ -238,6 +238,28 @@ Exemplo de resposta:
 }
 ```
 
+
+Exemplo de consulta de ONT:
+
+```bash
+curl "http://SEU_IP_OU_HOST:PORTA/api/v1/ont/by-serial?serial=48575443XXXXXXX&ip=192.168.255.255"
+```
+
+Exemplo de resposta:
+
+```json
+{
+  "ip": "10.80.3.3",
+  "serial": "48575443XXXXXXX",
+  "port": "0/1/7",
+  "status": 1,
+  "status_text": "online",
+  "last_down_cause": 5,
+  "last_down_cause_text": "LOS",
+  "rx_power_dbm": -19.42
+}
+```
+
 ---
 
 ## Comandos úteis
