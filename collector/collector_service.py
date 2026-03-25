@@ -22,6 +22,8 @@ mysqlConfig = {
     "pw": os.getenv("DB_PASSWORD", "hwmonit123"),
 }
 
+EMPTY_PON_SENTINEL_ONT_ID = int(os.getenv("EMPTY_PON_SENTINEL_ONT_ID", "65535"))
+
 
 def get_db() -> MySQLConnection:
     return mysql.connector.connect(
@@ -32,6 +34,7 @@ def get_db() -> MySQLConnection:
         database=mysqlConfig["db"],
     )
 
+
 def log_event(message: str, **fields) -> None:
     payload = {
         "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -40,6 +43,7 @@ def log_event(message: str, **fields) -> None:
     }
     payload.update(fields)
     print(json.dumps(payload, ensure_ascii=False, default=str), flush=True)
+
 
 def build_device(olt_ip: str) -> Dict[str, Any]:
     olt_port = int(os.getenv("OLT_PORT", "22"))
@@ -254,6 +258,25 @@ def parse_ont_summary(result: str, slot: str, pon: int) -> List[Dict[str, Any]]:
     return ont_list
 
 
+def build_empty_pon_record(slot: str, pon: int) -> Dict[str, Any]:
+    return {
+        "slot": slot,
+        "pon": pon,
+        "port": f"0/{slot}/{pon}",
+        "ont_id": EMPTY_PON_SENTINEL_ONT_ID,
+        "sn": None,
+        "run_state": "empty",
+        "last_down_cause": None,
+        "last_uptime": None,
+        "last_downtime": None,
+        "rx_power_dbm": None,
+        "tx_power_dbm": None,
+        "distance_m": None,
+        "ont_type": None,
+        "description": "EMPTY_PON_SENTINEL",
+    }
+
+
 def SavePonInfo(olt_ip: str, ponInfo: List[Dict[str, Any]]) -> Dict[str, int]:
     if not ponInfo:
         raise Exception("Coleta retornou vazia. Sincronização cancelada para evitar deleções indevidas.")
@@ -361,7 +384,10 @@ def GetPonInfo(conn, slots: List[str]) -> List[Dict[str, Any]]:
             result = conn.send_command(cmd)
 
             parsed = parse_ont_summary(result, slot, pon)
-            ponInfo.extend(parsed)
+            if parsed:
+                ponInfo.extend(parsed)
+            else:
+                ponInfo.append(build_empty_pon_record(slot, pon))
 
             if sleep_pons > 0:
                 time.sleep(sleep_pons)
