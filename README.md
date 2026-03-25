@@ -312,5 +312,3 @@ docker compose up -d --build
 Este projeto está licenciado sob a licença **MIT**.
 
 Isso significa que ele pode ser utilizado, copiado, modificado e distribuído livremente, inclusive para fins comerciais, desde que o aviso de copyright e a licença sejam mantidos.
-
-Para publicar corretamente no GitHub, adicione também um arquivo `LICENSE` com o texto completo da licença MIT.
