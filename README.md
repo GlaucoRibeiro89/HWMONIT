@@ -202,7 +202,7 @@ HWMONIT/
 Exemplo de consulta ao resumo de uma OLT:
 
 ```bash
-curl "http://SEU_IP_OU_HOST:PORTA/api/v1/summary/olt?ip=10.80.3.3"
+curl "http://SEU_IP_OU_HOST:PORTA/api/v1/summary/olt?ip=192.168.255.255"
 ```
 
 Exemplo de resposta:
