@@ -9,6 +9,8 @@ from fastapi.responses import JSONResponse
 
 app = FastAPI(title="hwmonit_api", version="1.0.0")
 
+EMPTY_PON_SENTINEL_ONT_ID = int(os.getenv("EMPTY_PON_SENTINEL_ONT_ID", "65535"))
+
 
 def get_db_connection():
     return pymysql.connect(
@@ -166,6 +168,7 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
 
     sql = """
         SELECT
+            ont_id,
             port,
             run_state,
             last_down_cause,
@@ -222,6 +225,23 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
         slot = parts[1]
         pon = parts[2]
         slot_path = f"{frame}/{slot}"
+        ont_id = row.get("ont_id")
+
+        # garante que slot e PON apareçam mesmo sem ONTs reais
+        s = slot_stats[slot_path]
+        s["slot_path"] = slot_path
+        s["frame"] = frame
+        s["slot"] = slot
+
+        p = pon_stats[port]
+        p["port"] = port
+        p["frame"] = frame
+        p["slot"] = slot
+        p["pon"] = pon
+
+        # linha sentinela da PON vazia: mantém a PON visível, mas não conta como ONT
+        if ont_id == EMPTY_PON_SENTINEL_ONT_ID:
+            continue
 
         run_state = (row.get("run_state") or "").strip().lower()
         last_down_cause = (row.get("last_down_cause") or "").upper()
@@ -232,10 +252,6 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
         is_loss = is_offline and ("LOS" in last_down_cause)
 
         # agrega por slot
-        s = slot_stats[slot_path]
-        s["slot_path"] = slot_path
-        s["frame"] = frame
-        s["slot"] = slot
         s["ont_total"] += 1
 
         if is_online:
@@ -250,11 +266,6 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
             s["dbm_count"] += 1
 
         # agrega por pon
-        p = pon_stats[port]
-        p["port"] = port
-        p["frame"] = frame
-        p["slot"] = slot
-        p["pon"] = pon
         p["ont_total"] += 1
 
         if is_online:
