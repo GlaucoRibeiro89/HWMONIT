@@ -1,0 +1,847 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<zabbix_export>
+    <version>7.0</version>
+    <template_groups>
+        <template_group>
+            <uuid>7c4c39ed28424544a8817cd4517007a7</uuid>
+            <name>OLT</name>
+        </template_group>
+        <template_group>
+            <uuid>0d84a121c1aa4bfab475a630e1aa6718</uuid>
+            <name>OLT-HUAWEI</name>
+        </template_group>
+    </template_groups>
+    <templates>
+        <template>
+            <uuid>523813ecb0f24442bef92115e052f9e7</uuid>
+            <template>OLT-HUAWEI-HWMONIT</template>
+            <name>OLT-HUAWEI-HWMONIT</name>
+            <groups>
+                <group>
+                    <name>OLT</name>
+                </group>
+                <group>
+                    <name>OLT-HUAWEI</name>
+                </group>
+            </groups>
+            <items>
+                <item>
+                    <uuid>02d199ca766c4bcb88d2794608459feb</uuid>
+                    <name>HWMONIT</name>
+                    <type>HTTP_AGENT</type>
+                    <key>HWMONIT</key>
+                    <history>7d</history>
+                    <value_type>TEXT</value_type>
+                    <url>http://127.0.0.1:8001/api/v1/summary/olt?ip={HOST.CONN}</url>
+                    <output_format>JSON</output_format>
+                    <tags>
+                        <tag>
+                            <tag>SCOPE</tag>
+                            <value>HWMONIT</value>
+                        </tag>
+                    </tags>
+                    <triggers>
+                        <trigger>
+                            <uuid>6de7af72cd0f4a29bddf972ea41c23ea</uuid>
+                            <expression>nodata(/OLT-HUAWEI-HWMONIT/HWMONIT,10m)=1</expression>
+                            <name>HWMONIT-TIMEOUT</name>
+                            <priority>WARNING</priority>
+                            <manual_close>YES</manual_close>
+                        </trigger>
+                    </triggers>
+                </item>
+            </items>
+            <discovery_rules>
+                <discovery_rule>
+                    <uuid>525e529457314158bc4c95b22186b723</uuid>
+                    <name>GPON PON discovery</name>
+                    <type>DEPENDENT</type>
+                    <key>olt.pon.discovery</key>
+                    <item_prototypes>
+                        <item_prototype>
+                            <uuid>fa97c5df67ec4d02a4d8c61e73c61a01</uuid>
+                            <name>PON {#PORT}: RX médio</name>
+                            <type>DEPENDENT</type>
+                            <key>olt.pon.avgdbm[{#PORT}]</key>
+                            <value_type>FLOAT</value_type>
+                            <preprocessing>
+                                <step>
+                                    <type>JSONPATH</type>
+                                    <parameters>
+                                        <parameter>$.body.pons[?(@.port == '{#PORT}')].avg_dbm.first()</parameter>
+                                    </parameters>
+                                </step>
+                            </preprocessing>
+                            <master_item>
+                                <key>HWMONIT</key>
+                            </master_item>
+                            <tags>
+                                <tag>
+                                    <tag>SCOPE</tag>
+                                    <value>HWMONIT</value>
+                                </tag>
+                            </tags>
+                            <trigger_prototypes>
+                                <trigger_prototype>
+                                    <uuid>62310b5539494bbdbe8a043c955d1e4e</uuid>
+                                    <expression>last(/OLT-HUAWEI-HWMONIT/olt.pon.avgdbm[{#PORT}])&lt;-26</expression>
+                                    <recovery_mode>RECOVERY_EXPRESSION</recovery_mode>
+                                    <recovery_expression>last(/OLT-HUAWEI-HWMONIT/olt.pon.avgdbm[{#PORT}])&gt;-26</recovery_expression>
+                                    <name>PON {#PORT}: RX AVG LOW</name>
+                                    <priority>AVERAGE</priority>
+                                    <manual_close>YES</manual_close>
+                                </trigger_prototype>
+                            </trigger_prototypes>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>9773d2bda49b42bbaa5d8cc2c4392435</uuid>
+                            <name>PON {#PORT}: ONTs LOS</name>
+                            <type>DEPENDENT</type>
+                            <key>olt.pon.loss[{#PORT}]</key>
+                            <preprocessing>
+                                <step>
+                                    <type>JSONPATH</type>
+                                    <parameters>
+                                        <parameter>$.body.pons[?(@.port == '{#PORT}')].ont_loss.first()</parameter>
+                                    </parameters>
+                                </step>
+                            </preprocessing>
+                            <master_item>
+                                <key>HWMONIT</key>
+                            </master_item>
+                            <tags>
+                                <tag>
+                                    <tag>SCOPE</tag>
+                                    <value>HWMONIT</value>
+                                </tag>
+                            </tags>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>ea9fda21de8341228ec0c18fa68e8e2d</uuid>
+                            <name>PON {#PORT}: ONTs offline</name>
+                            <type>DEPENDENT</type>
+                            <key>olt.pon.offline[{#PORT}]</key>
+                            <preprocessing>
+                                <step>
+                                    <type>JSONPATH</type>
+                                    <parameters>
+                                        <parameter>$.body.pons[?(@.port == '{#PORT}')].ont_offline.first()</parameter>
+                                    </parameters>
+                                </step>
+                            </preprocessing>
+                            <master_item>
+                                <key>HWMONIT</key>
+                            </master_item>
+                            <tags>
+                                <tag>
+                                    <tag>SCOPE</tag>
+                                    <value>HWMONIT</value>
+                                </tag>
+                            </tags>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>7515c0014f1d440d81b1d30ee81ff117</uuid>
+                            <name>PON {#PORT}: ONTs online</name>
+                            <type>DEPENDENT</type>
+                            <key>olt.pon.online[{#PORT}]</key>
+                            <preprocessing>
+                                <step>
+                                    <type>JSONPATH</type>
+                                    <parameters>
+                                        <parameter>$.body.pons[?(@.port == '{#PORT}')].ont_online.first()</parameter>
+                                    </parameters>
+                                </step>
+                            </preprocessing>
+                            <master_item>
+                                <key>HWMONIT</key>
+                            </master_item>
+                            <tags>
+                                <tag>
+                                    <tag>SCOPE</tag>
+                                    <value>HWMONIT</value>
+                                </tag>
+                            </tags>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>64a2d62c05b4489cb923746199ad6ffe</uuid>
+                            <name>PON {#PORT}: ONTs total</name>
+                            <type>DEPENDENT</type>
+                            <key>olt.pon.total[{#PORT}]</key>
+                            <preprocessing>
+                                <step>
+                                    <type>JSONPATH</type>
+                                    <parameters>
+                                        <parameter>$.body.pons[?(@.port == '{#PORT}')].ont_total.first()</parameter>
+                                    </parameters>
+                                </step>
+                            </preprocessing>
+                            <master_item>
+                                <key>HWMONIT</key>
+                            </master_item>
+                            <tags>
+                                <tag>
+                                    <tag>SCOPE</tag>
+                                    <value>HWMONIT</value>
+                                </tag>
+                            </tags>
+                        </item_prototype>
+                    </item_prototypes>
+                    <trigger_prototypes>
+                        <trigger_prototype>
+                            <uuid>dcb9255f01e9412eb83749e5c9a33101</uuid>
+                            <expression>(last(/OLT-HUAWEI-HWMONIT/olt.pon.total[{#PORT}])&gt;5) and
+(last(/OLT-HUAWEI-HWMONIT/olt.pon.loss[{#PORT}])&gt;=ceil(last(/OLT-HUAWEI-HWMONIT/olt.pon.total[{#PORT}])*0.5))</expression>
+                            <name>PON {#PORT}: LOSS</name>
+                            <priority>DISASTER</priority>
+                            <manual_close>YES</manual_close>
+                        </trigger_prototype>
+                    </trigger_prototypes>
+                    <master_item>
+                        <key>HWMONIT</key>
+                    </master_item>
+                    <lld_macro_paths>
+                        <lld_macro_path>
+                            <lld_macro>{#FRAME}</lld_macro>
+                            <path>$.frame</path>
+                        </lld_macro_path>
+                        <lld_macro_path>
+                            <lld_macro>{#PON}</lld_macro>
+                            <path>$.pon</path>
+                        </lld_macro_path>
+                        <lld_macro_path>
+                            <lld_macro>{#PORT}</lld_macro>
+                            <path>$.port</path>
+                        </lld_macro_path>
+                        <lld_macro_path>
+                            <lld_macro>{#SLOT}</lld_macro>
+                            <path>$.slot</path>
+                        </lld_macro_path>
+                    </lld_macro_paths>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <parameters>
+                                <parameter>$.body.pons</parameter>
+                            </parameters>
+                        </step>
+                    </preprocessing>
+                </discovery_rule>
+                <discovery_rule>
+                    <uuid>7978bcea4d4248cd82924259d7bbd7fd</uuid>
+                    <name>GPON Slot discovery</name>
+                    <type>DEPENDENT</type>
+                    <key>olt.slot.discovery</key>
+                    <item_prototypes>
+                        <item_prototype>
+                            <uuid>c364df4e57cc4d81b7e64a8f855f0405</uuid>
+                            <name>Slot {#SLOT_PATH}: RX médio</name>
+                            <type>DEPENDENT</type>
+                            <key>olt.slot.avgdbm[{#SLOT_PATH}]</key>
+                            <value_type>FLOAT</value_type>
+                            <preprocessing>
+                                <step>
+                                    <type>JSONPATH</type>
+                                    <parameters>
+                                        <parameter>$.body.slots[?(@.slot_path == '{#SLOT_PATH}')].avg_dbm.first()</parameter>
+                                    </parameters>
+                                </step>
+                            </preprocessing>
+                            <master_item>
+                                <key>HWMONIT</key>
+                            </master_item>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>6869397448be49e79ec918bea0cf5be6</uuid>
+                            <name>Slot {#SLOT_PATH}: ONTs LOS</name>
+                            <type>DEPENDENT</type>
+                            <key>olt.slot.loss[{#SLOT_PATH}]</key>
+                            <preprocessing>
+                                <step>
+                                    <type>JSONPATH</type>
+                                    <parameters>
+                                        <parameter>$.body.slots[?(@.slot_path == '{#SLOT_PATH}')].ont_loss.first()</parameter>
+                                    </parameters>
+                                </step>
+                            </preprocessing>
+                            <master_item>
+                                <key>HWMONIT</key>
+                            </master_item>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>6080ed89955a41f4b1c0accf3685590c</uuid>
+                            <name>Slot {#SLOT_PATH}: ONTs offline</name>
+                            <type>DEPENDENT</type>
+                            <key>olt.slot.offline[{#SLOT_PATH}]</key>
+                            <preprocessing>
+                                <step>
+                                    <type>JSONPATH</type>
+                                    <parameters>
+                                        <parameter>$.body.slots[?(@.slot_path == '{#SLOT_PATH}')].ont_offline.first()</parameter>
+                                    </parameters>
+                                </step>
+                            </preprocessing>
+                            <master_item>
+                                <key>HWMONIT</key>
+                            </master_item>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>3dae2ddbe68d4c8bbca70ffaebc7178f</uuid>
+                            <name>Slot {#SLOT_PATH}: ONTs online</name>
+                            <type>DEPENDENT</type>
+                            <key>olt.slot.online[{#SLOT_PATH}]</key>
+                            <preprocessing>
+                                <step>
+                                    <type>JSONPATH</type>
+                                    <parameters>
+                                        <parameter>$.body.slots[?(@.slot_path == '{#SLOT_PATH}')].ont_online.first()</parameter>
+                                    </parameters>
+                                </step>
+                            </preprocessing>
+                            <master_item>
+                                <key>HWMONIT</key>
+                            </master_item>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>e03b6c94838c4e63b8ef11c3cbb2c1be</uuid>
+                            <name>Slot {#SLOT_PATH}: ONTs total</name>
+                            <type>DEPENDENT</type>
+                            <key>olt.slot.total[{#SLOT_PATH}]</key>
+                            <preprocessing>
+                                <step>
+                                    <type>JSONPATH</type>
+                                    <parameters>
+                                        <parameter>$.body.slots[?(@.slot_path == '{#SLOT_PATH}')].ont_total.first()</parameter>
+                                    </parameters>
+                                </step>
+                            </preprocessing>
+                            <master_item>
+                                <key>HWMONIT</key>
+                            </master_item>
+                        </item_prototype>
+                    </item_prototypes>
+                    <master_item>
+                        <key>HWMONIT</key>
+                    </master_item>
+                    <lld_macro_paths>
+                        <lld_macro_path>
+                            <lld_macro>{#FRAME}</lld_macro>
+                            <path>$.frame</path>
+                        </lld_macro_path>
+                        <lld_macro_path>
+                            <lld_macro>{#SLOT_PATH}</lld_macro>
+                            <path>$.slot_path</path>
+                        </lld_macro_path>
+                        <lld_macro_path>
+                            <lld_macro>{#SLOT}</lld_macro>
+                            <path>$.slot</path>
+                        </lld_macro_path>
+                    </lld_macro_paths>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <parameters>
+                                <parameter>$.body.slots</parameter>
+                            </parameters>
+                        </step>
+                    </preprocessing>
+                </discovery_rule>
+            </discovery_rules>
+        </template>
+        <template>
+            <uuid>664cfd4111a2430ebb8ac35ebdaf2719</uuid>
+            <template>OLT HUAWEI MA5800 - HWMONIT</template>
+            <name>OLT HUAWEI MA5800 - HWMONIT</name>
+            <description>FUNCIONAL NOS MODELOS MA5800 X15 E X7, NÃO FOI TESTADO EM OUTROS MODELOS.</description>
+            <groups>
+                <group>
+                    <name>OLT-HUAWEI</name>
+                </group>
+            </groups>
+            <items>
+                <item>
+                    <uuid>98b8ac3282e84081b9f10f935eae31a8</uuid>
+                    <name>CHASSI POWER</name>
+                    <type>SNMP_AGENT</type>
+                    <snmp_oid>1.3.6.1.4.1.2011.2.6.7.1.1.1.1.11.0</snmp_oid>
+                    <key>hwMusaFramePower.0</key>
+                    <history>90d</history>
+                    <value_type>FLOAT</value_type>
+                    <units>W</units>
+                    <triggers>
+                        <trigger>
+                            <uuid>0a6f3cbe9d9c4ac89ffa3ea26213deea</uuid>
+                            <expression>avg(/OLT HUAWEI MA5800 - HWMONIT/hwMusaFramePower.0,10m)&gt;1000</expression>
+                            <name>{HOST.NAME} HIGH POWER</name>
+                            <priority>DISASTER</priority>
+                            <manual_close>YES</manual_close>
+                        </trigger>
+                    </triggers>
+                </item>
+                <item>
+                    <uuid>d0e6395d233d4b49ac9ca9c8e02f0008</uuid>
+                    <name>SYS UPTIME</name>
+                    <type>SNMP_AGENT</type>
+                    <snmp_oid>1.3.6.1.2.1.1.3.0</snmp_oid>
+                    <key>sysUpTimeInstance</key>
+                    <delay>1h</delay>
+                    <history>90d</history>
+                    <trends>0</trends>
+                    <units>uptime</units>
+                    <description>OLT SYSTEM UPTIME</description>
+                    <triggers>
+                        <trigger>
+                            <uuid>fc207023322f45a5bb2275eafa73c272</uuid>
+                            <expression>last(/OLT HUAWEI MA5800 - HWMONIT/sysUpTimeInstance)&lt;10m</expression>
+                            <name>{HOST.NAME} HAS BEEN RESTARTED</name>
+                            <priority>AVERAGE</priority>
+                            <manual_close>YES</manual_close>
+                        </trigger>
+                    </triggers>
+                </item>
+            </items>
+            <discovery_rules>
+                <discovery_rule>
+                    <uuid>53044c6d0de54fc98226831161b7f28a</uuid>
+                    <name>GPON BOARD</name>
+                    <type>SNMP_AGENT</type>
+                    <snmp_oid>discovery[{#HWSLOTTYPENAME},1.3.6.1.4.1.2011.6.3.3.2.1.21.0,{#HWSLOTOPERSTATUS},1.3.6.1.4.1.2011.6.3.3.2.1.8.0,{#HWSLOTDESC},1.3.6.1.4.1.2011.6.3.3.2.1.3.0]</snmp_oid>
+                    <key>dis.hwSlotTypeName.gpon.0</key>
+                    <delay>1h</delay>
+                    <filter>
+                        <evaltype>AND</evaltype>
+                        <conditions>
+                            <condition>
+                                <macro>{#HWSLOTOPERSTATUS}</macro>
+                                <value>2</value>
+                            </condition>
+                            <condition>
+                                <macro>{#HWSLOTTYPENAME}</macro>
+                                <value>(MPLA|MPLB|PILA)$</value>
+                                <operator>NOT_MATCHES_REGEX</operator>
+                            </condition>
+                        </conditions>
+                    </filter>
+                    <item_prototypes>
+                        <item_prototype>
+                            <uuid>d5f7135d4c0f4f46a0afe51aa4ac2c64</uuid>
+                            <name>{#HWSLOTDESC} CPU:</name>
+                            <type>SNMP_AGENT</type>
+                            <snmp_oid>1.3.6.1.4.1.2011.2.6.7.1.1.2.1.5.0.{#SNMPINDEX}</snmp_oid>
+                            <key>hwMusaBoardCpuRate.gpon.0[{#SNMPINDEX}]</key>
+                            <history>90d</history>
+                            <value_type>FLOAT</value_type>
+                            <units>%</units>
+                            <trigger_prototypes>
+                                <trigger_prototype>
+                                    <uuid>a666d716e7904c22817811771de8a4a4</uuid>
+                                    <expression>last(/OLT HUAWEI MA5800 - HWMONIT/hwMusaBoardCpuRate.gpon.0[{#SNMPINDEX}])&gt;90</expression>
+                                    <name>{HOST.NAME} {#HWSLOTDESC} - HIGH CPU</name>
+                                    <priority>DISASTER</priority>
+                                    <manual_close>YES</manual_close>
+                                </trigger_prototype>
+                            </trigger_prototypes>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>031822a3273c47b1898315d57a6504a7</uuid>
+                            <name>{#HWSLOTDESC} POWER:</name>
+                            <type>SNMP_AGENT</type>
+                            <snmp_oid>1.3.6.1.4.1.2011.2.6.7.1.1.2.1.11.0.{#SNMPINDEX}</snmp_oid>
+                            <key>hwMusaBoardPower.gpon.0[{#SNMPINDEX}]</key>
+                            <history>90d</history>
+                            <value_type>FLOAT</value_type>
+                            <units>w</units>
+                            <trigger_prototypes>
+                                <trigger_prototype>
+                                    <uuid>166bc56c01384599b53df9dfec34fea8</uuid>
+                                    <expression>last(/OLT HUAWEI MA5800 - HWMONIT/hwMusaBoardPower.gpon.0[{#SNMPINDEX}])&gt;80</expression>
+                                    <name>{HOST.NAME} {#HWSLOTDESC} - HIGH POWER</name>
+                                    <priority>DISASTER</priority>
+                                    <manual_close>YES</manual_close>
+                                </trigger_prototype>
+                            </trigger_prototypes>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>ad1b22fd0bd448378473d464aa0995b3</uuid>
+                            <name>{#HWSLOTDESC} MEMORY:</name>
+                            <type>SNMP_AGENT</type>
+                            <snmp_oid>1.3.6.1.4.1.2011.2.6.7.1.1.2.1.6.0.{#SNMPINDEX}</snmp_oid>
+                            <key>hwMusaBoardRamUseRate.gpon.0[{#SNMPINDEX}]</key>
+                            <history>90d</history>
+                            <value_type>FLOAT</value_type>
+                            <units>%</units>
+                            <trigger_prototypes>
+                                <trigger_prototype>
+                                    <uuid>a52389cc0c8a4dfa89e2eef0884dc0bd</uuid>
+                                    <expression>last(/OLT HUAWEI MA5800 - HWMONIT/hwMusaBoardRamUseRate.gpon.0[{#SNMPINDEX}])&gt;80</expression>
+                                    <name>{HOST.NAME} {#HWSLOTDESC} - HIGH MEMORY</name>
+                                    <priority>DISASTER</priority>
+                                    <manual_close>YES</manual_close>
+                                </trigger_prototype>
+                            </trigger_prototypes>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>9e2532ebcfe34e3d839c491ac154a21f</uuid>
+                            <name>{#HWSLOTDESC} TEMPERATURE:</name>
+                            <type>SNMP_AGENT</type>
+                            <snmp_oid>1.3.6.1.4.1.2011.6.3.3.2.1.13.0.{#SNMPINDEX}</snmp_oid>
+                            <key>hwSlotTemprature.gpon.0[{#SNMPINDEX}]</key>
+                            <history>90d</history>
+                            <value_type>FLOAT</value_type>
+                            <units>C</units>
+                            <trigger_prototypes>
+                                <trigger_prototype>
+                                    <uuid>267e219eb30c4b4281446d3faa603789</uuid>
+                                    <expression>last(/OLT HUAWEI MA5800 - HWMONIT/hwSlotTemprature.gpon.0[{#SNMPINDEX}])&gt;48</expression>
+                                    <name>{HOST.NAME} {#HWSLOTDESC} - HIGH TEMPETURE</name>
+                                    <priority>DISASTER</priority>
+                                    <manual_close>YES</manual_close>
+                                </trigger_prototype>
+                            </trigger_prototypes>
+                        </item_prototype>
+                    </item_prototypes>
+                </discovery_rule>
+                <discovery_rule>
+                    <uuid>1d98bf5fd30d4d22bb67b16002a5ee70</uuid>
+                    <name>MGMT BOARD</name>
+                    <type>SNMP_AGENT</type>
+                    <snmp_oid>discovery[{#HWSLOTTYPENAME},1.3.6.1.4.1.2011.6.3.3.2.1.21.0,{#HWSLOTOPERSTATUS},1.3.6.1.4.1.2011.6.3.3.2.1.8.0,{#HWSLOTDESC},1.3.6.1.4.1.2011.6.3.3.2.1.3.0]</snmp_oid>
+                    <key>dis.hwSlotTypeName.mgmt.0</key>
+                    <delay>1h</delay>
+                    <filter>
+                        <evaltype>AND</evaltype>
+                        <conditions>
+                            <condition>
+                                <macro>{#HWSLOTOPERSTATUS}</macro>
+                                <value>2</value>
+                            </condition>
+                            <condition>
+                                <macro>{#HWSLOTTYPENAME}</macro>
+                                <value>(MPLA|MPLB)$</value>
+                            </condition>
+                        </conditions>
+                    </filter>
+                    <item_prototypes>
+                        <item_prototype>
+                            <uuid>8df29baed33f4f00af5db43c830fec23</uuid>
+                            <name>{#HWSLOTDESC} CPU:</name>
+                            <type>SNMP_AGENT</type>
+                            <snmp_oid>1.3.6.1.4.1.2011.2.6.7.1.1.2.1.5.0.{#SNMPINDEX}</snmp_oid>
+                            <key>hwMusaBoardCpuRate.mgmt.0[{#SNMPINDEX}]</key>
+                            <history>90d</history>
+                            <value_type>FLOAT</value_type>
+                            <units>%</units>
+                            <trigger_prototypes>
+                                <trigger_prototype>
+                                    <uuid>62a94fbac666456099eb09df1e283406</uuid>
+                                    <expression>avg(/OLT HUAWEI MA5800 - HWMONIT/hwMusaBoardCpuRate.mgmt.0[{#SNMPINDEX}],5m)&gt;90</expression>
+                                    <name>{HOST.NAME} {#HWSLOTDESC} - HIGH CPU</name>
+                                    <priority>DISASTER</priority>
+                                    <manual_close>YES</manual_close>
+                                </trigger_prototype>
+                            </trigger_prototypes>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>03c45035f50e40c7bb4c83dd95ea2ecc</uuid>
+                            <name>{#HWSLOTDESC} POWER:</name>
+                            <type>SNMP_AGENT</type>
+                            <snmp_oid>1.3.6.1.4.1.2011.2.6.7.1.1.2.1.11.0.{#SNMPINDEX}</snmp_oid>
+                            <key>hwMusaBoardPower.mgmt.0[{#SNMPINDEX}]</key>
+                            <history>90d</history>
+                            <value_type>FLOAT</value_type>
+                            <units>W</units>
+                            <trigger_prototypes>
+                                <trigger_prototype>
+                                    <uuid>dcb6c1c2fcbd48068416ccd4dd23f19f</uuid>
+                                    <expression>last(/OLT HUAWEI MA5800 - HWMONIT/hwMusaBoardPower.mgmt.0[{#SNMPINDEX}])&gt;200</expression>
+                                    <name>{HOST.NAME} {#HWSLOTDESC} HIGH POWER</name>
+                                    <priority>DISASTER</priority>
+                                    <manual_close>YES</manual_close>
+                                </trigger_prototype>
+                            </trigger_prototypes>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>ad8e0e31d5dc4629b2da5f6fd5b360a6</uuid>
+                            <name>{#HWSLOTDESC} MEMORY:</name>
+                            <type>SNMP_AGENT</type>
+                            <snmp_oid>1.3.6.1.4.1.2011.2.6.7.1.1.2.1.6.0.{#SNMPINDEX}</snmp_oid>
+                            <key>hwMusaBoardRamUseRate.mgmt.0[{#SNMPINDEX}]</key>
+                            <history>90d</history>
+                            <value_type>FLOAT</value_type>
+                            <units>%</units>
+                            <trigger_prototypes>
+                                <trigger_prototype>
+                                    <uuid>50db5b4d260741ec91574af975079d28</uuid>
+                                    <expression>last(/OLT HUAWEI MA5800 - HWMONIT/hwMusaBoardRamUseRate.mgmt.0[{#SNMPINDEX}])&gt;80</expression>
+                                    <name>{HOST.NAME} {#HWSLOTDESC} - HIGH MEMORY</name>
+                                    <priority>DISASTER</priority>
+                                    <manual_close>YES</manual_close>
+                                </trigger_prototype>
+                            </trigger_prototypes>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>316d207aee0a4f57a5db17f6b40693fd</uuid>
+                            <name>{#HWSLOTDESC} TEMPERATURE:</name>
+                            <type>SNMP_AGENT</type>
+                            <snmp_oid>1.3.6.1.4.1.2011.6.3.3.2.1.13.0.{#SNMPINDEX}</snmp_oid>
+                            <key>hwSlotTemprature.mgmt.0[{#SNMPINDEX}]</key>
+                            <history>90d</history>
+                            <value_type>FLOAT</value_type>
+                            <units>C</units>
+                            <trigger_prototypes>
+                                <trigger_prototype>
+                                    <uuid>89aca768e3624e73afde9d1e4f68ce62</uuid>
+                                    <expression>last(/OLT HUAWEI MA5800 - HWMONIT/hwSlotTemprature.mgmt.0[{#SNMPINDEX}])&gt;55</expression>
+                                    <name>{HOST.NAME} {#HWSLOTDESC} - HIGH TEMPETURE</name>
+                                    <priority>DISASTER</priority>
+                                    <manual_close>YES</manual_close>
+                                </trigger_prototype>
+                            </trigger_prototypes>
+                        </item_prototype>
+                    </item_prototypes>
+                </discovery_rule>
+                <discovery_rule>
+                    <uuid>01246764bca14ae99121713e06bdbf8a</uuid>
+                    <name>PILA BOARD</name>
+                    <type>SNMP_AGENT</type>
+                    <snmp_oid>discovery[{#HWSLOTTYPENAME},1.3.6.1.4.1.2011.6.3.3.2.1.21.0,{#HWSLOTOPERSTATUS},1.3.6.1.4.1.2011.6.3.3.2.1.8.0,{#HWSLOTDESC},1.3.6.1.4.1.2011.6.3.3.2.1.3.0]</snmp_oid>
+                    <key>dis.hwSlotTypeName.pila.0</key>
+                    <delay>1h</delay>
+                    <filter>
+                        <evaltype>AND</evaltype>
+                        <conditions>
+                            <condition>
+                                <macro>{#HWSLOTOPERSTATUS}</macro>
+                                <value>2</value>
+                            </condition>
+                            <condition>
+                                <macro>{#HWSLOTTYPENAME}</macro>
+                                <value>(PILA)$</value>
+                            </condition>
+                        </conditions>
+                    </filter>
+                    <item_prototypes>
+                        <item_prototype>
+                            <uuid>04fa7301f9b84094a3aab298370a1c8d</uuid>
+                            <name>{#HWSLOTDESC} STATUS:</name>
+                            <type>SNMP_AGENT</type>
+                            <snmp_oid>1.3.6.1.4.1.2011.2.6.7.1.1.2.1.17.0.{#SNMPINDEX}</snmp_oid>
+                            <key>hwMusaBoardPowerInputStatus.pila.0[{#SNMPINDEX}]</key>
+                            <description>normal(1)
+fault(2)
+invalid(3)</description>
+                            <trigger_prototypes>
+                                <trigger_prototype>
+                                    <uuid>0d8747f3c72b4cc584ebe179b25a6f8e</uuid>
+                                    <expression>last(/OLT HUAWEI MA5800 - HWMONIT/hwMusaBoardPowerInputStatus.pila.0[{#SNMPINDEX}])&lt;&gt;1</expression>
+                                    <name>{HOST.NAME} {#HWSLOTDESC} DOWN</name>
+                                    <priority>DISASTER</priority>
+                                    <manual_close>YES</manual_close>
+                                </trigger_prototype>
+                            </trigger_prototypes>
+                        </item_prototype>
+                    </item_prototypes>
+                </discovery_rule>
+                <discovery_rule>
+                    <uuid>82c7aa18fce740a882ca5ff8079ee3a5</uuid>
+                    <name>GPON PORTS</name>
+                    <type>SNMP_AGENT</type>
+                    <snmp_oid>discovery[{#IFNAME},1.3.6.1.2.1.31.1.1.1.1]</snmp_oid>
+                    <key>dis.ifName.0</key>
+                    <delay>1h</delay>
+                    <filter>
+                        <evaltype>AND</evaltype>
+                        <conditions>
+                            <condition>
+                                <macro>{#IFNAME}</macro>
+                                <value>^GPON</value>
+                            </condition>
+                        </conditions>
+                    </filter>
+                    <item_prototypes>
+                        <item_prototype>
+                            <uuid>9f047de9019b4c9cb374daede0b754e8</uuid>
+                            <name>{#IFNAME} VOLTAGE:</name>
+                            <type>SNMP_AGENT</type>
+                            <snmp_oid>1.3.6.1.4.1.2011.6.128.1.1.2.23.1.2.{#SNMPINDEX}</snmp_oid>
+                            <key>hwGponOltOpticsDdmInfoSupplyVoltage.0[{#SNMPINDEX}]</key>
+                            <delay>15m</delay>
+                            <history>90d</history>
+                            <value_type>FLOAT</value_type>
+                            <units>V</units>
+                            <preprocessing>
+                                <step>
+                                    <type>MULTIPLIER</type>
+                                    <parameters>
+                                        <parameter>0.01</parameter>
+                                    </parameters>
+                                </step>
+                            </preprocessing>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>914c42c871014caf8f44dcbf05e44ea1</uuid>
+                            <name>{#IFNAME} TEMPERATURE:</name>
+                            <type>SNMP_AGENT</type>
+                            <snmp_oid>1.3.6.1.4.1.2011.6.128.1.1.2.23.1.1.{#SNMPINDEX}</snmp_oid>
+                            <key>hwGponOltOpticsDdmInfoTemperature.0[{#SNMPINDEX}]</key>
+                            <delay>15m</delay>
+                            <history>90d</history>
+                            <value_type>FLOAT</value_type>
+                            <units>C</units>
+                            <preprocessing>
+                                <step>
+                                    <type>JAVASCRIPT</type>
+                                    <parameters>
+                                        <parameter>if (value &gt; 1000)
+return 1/value
+else
+return value</parameter>
+                                    </parameters>
+                                </step>
+                            </preprocessing>
+                            <trigger_prototypes>
+                                <trigger_prototype>
+                                    <uuid>b8ae6402d66a41b99af1fc8d5150855a</uuid>
+                                    <expression>last(/OLT HUAWEI MA5800 - HWMONIT/hwGponOltOpticsDdmInfoTemperature.0[{#SNMPINDEX}])&gt;60</expression>
+                                    <name>{HOST.NAME} {#IFNAME}  HIGH TEMPETURE</name>
+                                    <priority>HIGH</priority>
+                                    <manual_close>YES</manual_close>
+                                </trigger_prototype>
+                            </trigger_prototypes>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>2b83610ad47b466c9337fb46b152e075</uuid>
+                            <name>{#IFNAME} CURRENT:</name>
+                            <type>SNMP_AGENT</type>
+                            <snmp_oid>1.3.6.1.4.1.2011.6.128.1.1.2.23.1.3.{#SNMPINDEX}</snmp_oid>
+                            <key>hwGponOltOpticsDdmInfoTxBiasCurrent.0[{#SNMPINDEX}]</key>
+                            <delay>15m</delay>
+                            <history>90d</history>
+                            <value_type>FLOAT</value_type>
+                            <units>A</units>
+                            <preprocessing>
+                                <step>
+                                    <type>MULTIPLIER</type>
+                                    <parameters>
+                                        <parameter>0.01</parameter>
+                                    </parameters>
+                                </step>
+                            </preprocessing>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>af84e80d34ff456bb32986f46fe3c79d</uuid>
+                            <name>{#IFNAME} TX POWER:</name>
+                            <type>SNMP_AGENT</type>
+                            <snmp_oid>1.3.6.1.4.1.2011.6.128.1.1.2.23.1.4.{#SNMPINDEX}</snmp_oid>
+                            <key>hwGponOltOpticsDdmInfoTxPower.0[{#SNMPINDEX}]</key>
+                            <delay>15m</delay>
+                            <history>90d</history>
+                            <value_type>FLOAT</value_type>
+                            <units>dBm</units>
+                            <preprocessing>
+                                <step>
+                                    <type>MULTIPLIER</type>
+                                    <parameters>
+                                        <parameter>0.01</parameter>
+                                    </parameters>
+                                </step>
+                            </preprocessing>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>c1f62a75f3974882a067ce5078cd86c2</uuid>
+                            <name>{#IFNAME} SFP TYPE:</name>
+                            <type>SNMP_AGENT</type>
+                            <snmp_oid>1.3.6.1.4.1.2011.6.128.1.1.2.22.1.28.{#SNMPINDEX}</snmp_oid>
+                            <key>hwGponOltOpticsModuleXponSubType.0[{#SNMPINDEX}]</key>
+                            <delay>1h</delay>
+                            <history>7d</history>
+                            <description>104 = C++
+102 = C+</description>
+                            <trigger_prototypes>
+                                <trigger_prototype>
+                                    <uuid>2d2a9941041f4a40b8ab8d1b50125f0f</uuid>
+                                    <expression>change(/OLT HUAWEI MA5800 - HWMONIT/hwGponOltOpticsModuleXponSubType.0[{#SNMPINDEX}])=1</expression>
+                                    <name>{HOST.NAME} {#IFNAME}  PON TYPE CHANGE</name>
+                                    <priority>WARNING</priority>
+                                    <manual_close>YES</manual_close>
+                                </trigger_prototype>
+                            </trigger_prototypes>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>597c7cf365d9470f8dba2d3c349b180c</uuid>
+                            <name>{#IFNAME} STATUS:</name>
+                            <type>SNMP_AGENT</type>
+                            <snmp_oid>1.3.6.1.2.1.31.1.1.1.17.{#SNMPINDEX}</snmp_oid>
+                            <key>ifConnectorPresent.0[{#SNMPINDEX}]</key>
+                            <delay>15m</delay>
+                            <history>90d</history>
+                            <description>UP(1)
+DOWN(2)</description>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>adf9b5bd679844f0ba88e457eaf4422d</uuid>
+                            <name>{#IFNAME} TRAFEGO IN:</name>
+                            <type>SNMP_AGENT</type>
+                            <snmp_oid>1.3.6.1.2.1.31.1.1.1.6.{#SNMPINDEX}</snmp_oid>
+                            <key>ifHCInOctets[ifHCInOctets.{#SNMPINDEX}]</key>
+                            <delay>5m</delay>
+                            <history>90d</history>
+                            <value_type>FLOAT</value_type>
+                            <units>bps</units>
+                            <preprocessing>
+                                <step>
+                                    <type>CHANGE_PER_SECOND</type>
+                                </step>
+                                <step>
+                                    <type>MULTIPLIER</type>
+                                    <parameters>
+                                        <parameter>8</parameter>
+                                    </parameters>
+                                </step>
+                            </preprocessing>
+                            <trigger_prototypes>
+                                <trigger_prototype>
+                                    <uuid>ea2fe254c92e48eb9d05d852fd2765c5</uuid>
+                                    <expression>avg(/OLT HUAWEI MA5800 - HWMONIT/ifHCInOctets[ifHCInOctets.{#SNMPINDEX}],30m)&gt;1048576000000000</expression>
+                                    <name>{HOST.NAME} {#IFNAME}  HIGH IN TRAFFIC</name>
+                                    <priority>DISASTER</priority>
+                                    <manual_close>YES</manual_close>
+                                </trigger_prototype>
+                            </trigger_prototypes>
+                        </item_prototype>
+                        <item_prototype>
+                            <uuid>2f1a0afc100f45b0825769e1f91f0574</uuid>
+                            <name>{#IFNAME} TRAFEGO OUT:</name>
+                            <type>SNMP_AGENT</type>
+                            <snmp_oid>1.3.6.1.2.1.31.1.1.1.10.{#SNMPINDEX}</snmp_oid>
+                            <key>ifHCOutOctets[ifHCOutOctets.{#SNMPINDEX}]</key>
+                            <delay>5m</delay>
+                            <history>90d</history>
+                            <value_type>FLOAT</value_type>
+                            <units>bps</units>
+                            <preprocessing>
+                                <step>
+                                    <type>CHANGE_PER_SECOND</type>
+                                </step>
+                                <step>
+                                    <type>MULTIPLIER</type>
+                                    <parameters>
+                                        <parameter>8</parameter>
+                                    </parameters>
+                                </step>
+                            </preprocessing>
+                            <trigger_prototypes>
+                                <trigger_prototype>
+                                    <uuid>1ada395f34d64dd3801fd387b211c20f</uuid>
+                                    <expression>avg(/OLT HUAWEI MA5800 - HWMONIT/ifHCOutOctets[ifHCOutOctets.{#SNMPINDEX}],30m)&gt;2097152000000000</expression>
+                                    <name>{HOST.NAME} {#IFNAME}  HIGH OUT TRAFFIC</name>
+                                    <priority>DISASTER</priority>
+                                    <manual_close>YES</manual_close>
+                                </trigger_prototype>
+                            </trigger_prototypes>
+                        </item_prototype>
+                    </item_prototypes>
+                </discovery_rule>
+            </discovery_rules>
+        </template>
+    </templates>
+</zabbix_export>
