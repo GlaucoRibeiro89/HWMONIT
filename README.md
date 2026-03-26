@@ -276,7 +276,7 @@ offline + DYING → 2
 offline + LOS → 5
 rx_power_dbm < -25 → 3
 rx_power_dbm > -12 → 4
-não casou com nada → -6
+não casou com nada → 6
 
 ```
 ---

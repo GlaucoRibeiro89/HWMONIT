@@ -67,6 +67,10 @@ def map_ont_result(run_state: str, last_down_cause: str, rx_power_dbm) -> int:
     cause = normalize_text(last_down_cause).upper()
     dbm = parse_float_or_none(rx_power_dbm)
 
+    # Bug do equipamento: online sem potência válida
+    if state == "online" and dbm is None:
+        return -6
+
     if state == "online":
         return 1
 
@@ -82,7 +86,7 @@ def map_ont_result(run_state: str, last_down_cause: str, rx_power_dbm) -> int:
     if dbm is not None and dbm > -12:
         return 4
 
-    return -6
+    return 6
 
 
 def load_allowed_api_ips():
