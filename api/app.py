@@ -69,7 +69,7 @@ def map_ont_result(run_state: str, last_down_cause: str, rx_power_dbm) -> int:
 
     # Bug do equipamento: online sem potência válida
     if state == "online" and dbm is None:
-        return -6
+        return 6
 
     if state == "online":
         return 1
