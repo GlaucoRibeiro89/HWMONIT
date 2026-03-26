@@ -62,26 +62,27 @@ def normalize_text(value) -> str:
     return str(value).strip()
 
 
-def map_status_to_int(run_state: str) -> int:
-    value = normalize_text(run_state).lower()
+def map_ont_result(run_state: str, last_down_cause: str, rx_power_dbm) -> int:
+    state = normalize_text(run_state).lower()
+    cause = normalize_text(last_down_cause).upper()
+    dbm = parse_float_or_none(rx_power_dbm)
 
-    if value == "offline":
-        return 0
-    if value == "online":
+    if state == "online":
         return 1
 
-    return -1
+    if state == "offline" and "DYING" in cause:
+        return 2
 
+    if dbm is not None and dbm < -25:
+        return 3
 
-def map_last_down_cause_to_int(last_down_cause: str) -> int:
-    value = normalize_text(last_down_cause).upper()
+    if dbm is not None and dbm > -12:
+        return 4
 
-    if "DYING" in value:
-        return 0
-    if "LOS" in value:
+    if state == "offline" and "LOS" in cause:
         return 5
 
-    return -5
+    return -6
 
 
 def load_allowed_api_ips():
@@ -438,20 +439,25 @@ def ont_by_serial(
 
     run_state = normalize_text(row.get("run_state"))
     last_down_cause = normalize_text(row.get("last_down_cause"))
+    rx_power_dbm = parse_float_or_none(row.get("rx_power_dbm"))
+
+    status_code = map_ont_result(
+        run_state=run_state,
+        last_down_cause=last_down_cause,
+        rx_power_dbm=rx_power_dbm,
+    )
 
     return JSONResponse(
         content={
             "ip": row.get("ip"),
             "serial": row.get("sn"),
             "port": row.get("port"),
-            "status": map_status_to_int(run_state),
-            "status_text": run_state,
-            "last_down_cause": map_last_down_cause_to_int(last_down_cause),
+            "status": status_code,
+            "run_state_text": run_state,
             "last_down_cause_text": last_down_cause,
-            "rx_power_dbm": parse_float_or_none(row.get("rx_power_dbm")),
+            "rx_power_dbm": rx_power_dbm,
         }
     )
-
 
 @app.get("/api/v1/worst-power")
 def worst_power_onts(
