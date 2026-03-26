@@ -73,14 +73,14 @@ def map_ont_result(run_state: str, last_down_cause: str, rx_power_dbm) -> int:
     if state == "offline" and "DYING" in cause:
         return 2
 
+    if state == "offline" and "LOS" in cause:
+        return 5
+
     if dbm is not None and dbm < -25:
         return 3
 
     if dbm is not None and dbm > -12:
         return 4
-
-    if state == "offline" and "LOS" in cause:
-        return 5
 
     return -6
 
