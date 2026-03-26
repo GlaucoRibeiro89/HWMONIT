@@ -328,6 +328,10 @@ docker compose down
 docker compose up -d --build
 ```
 
+### Validar se o collector consegue acessar a olt
+```bash
+docker exec -it CONTAINER-ID bash
+```
 ---
 
 ## Possíveis aplicações
@@ -353,11 +357,3 @@ docker compose up -d --build
 Este projeto está licenciado sob a licença **MIT**.
 
 Isso significa que ele pode ser utilizado, copiado, modificado e distribuído livremente, inclusive para fins comerciais, desde que o aviso de copyright e a licença sejam mantidos.
-
-
-1 = Online
-2 = Offline - Dying gasp
-3 = Sinal baixo
-4 = Sinal alto
-5 = Offline - LOS
--6 = Outros
