@@ -246,6 +246,14 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
         "dbm_count": 0,
     })
 
+    # Resumo geral da OLT
+    olt_total = 0
+    olt_online = 0
+    olt_offline = 0
+    olt_loss = 0
+    olt_dbm_sum = 0.0
+    olt_dbm_count = 0
+
     for row in rows:
         port = (row.get("port") or "").strip()
         if not port:
@@ -261,6 +269,7 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
         slot_path = f"{frame}/{slot}"
         ont_id = row.get("ont_id")
 
+        # Garante que slot/PON apareçam mesmo sem ONTs reais
         s = slot_stats[slot_path]
         s["slot_path"] = slot_path
         s["frame"] = frame
@@ -272,6 +281,7 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
         p["slot"] = slot
         p["pon"] = pon
 
+        # Não contabiliza a linha sentinela
         if ont_id == EMPTY_PON_SENTINEL_ONT_ID:
             continue
 
@@ -283,8 +293,8 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
         is_offline = run_state == "offline"
         is_loss = is_offline and ("LOS" in last_down_cause)
 
+        # Contadores por slot
         s["ont_total"] += 1
-
         if is_online:
             s["ont_online"] += 1
         if is_offline:
@@ -292,12 +302,8 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
         if is_loss:
             s["ont_loss"] += 1
 
-        if rx_power_dbm is not None:
-            s["dbm_sum"] += rx_power_dbm
-            s["dbm_count"] += 1
-
+        # Contadores por PON
         p["ont_total"] += 1
-
         if is_online:
             p["ont_online"] += 1
         if is_offline:
@@ -305,9 +311,25 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
         if is_loss:
             p["ont_loss"] += 1
 
-        if rx_power_dbm is not None:
+        # Contadores gerais da OLT
+        olt_total += 1
+        if is_online:
+            olt_online += 1
+        if is_offline:
+            olt_offline += 1
+        if is_loss:
+            olt_loss += 1
+
+        # Média de dbm: somente ONTs online com valor válido
+        if is_online and rx_power_dbm is not None:
+            s["dbm_sum"] += rx_power_dbm
+            s["dbm_count"] += 1
+
             p["dbm_sum"] += rx_power_dbm
             p["dbm_count"] += 1
+
+            olt_dbm_sum += rx_power_dbm
+            olt_dbm_count += 1
 
     def sort_key_slot(item):
         frame = int(item["frame"]) if str(item["frame"]).isdigit() else 0
@@ -355,8 +377,19 @@ def olt_summary(ip: str = Query(..., description="IP da OLT")):
             "avg_dbm": avg_dbm,
         })
 
+    olt_avg_dbm = None
+    if olt_dbm_count > 0:
+        olt_avg_dbm = round(olt_dbm_sum / olt_dbm_count, 2)
+
     return JSONResponse(content={
         "ip": olt_ip,
+        "summary": {
+            "ont_total": olt_total,
+            "ont_online": olt_online,
+            "ont_offline": olt_offline,
+            "ont_loss": olt_loss,
+            "avg_dbm": olt_avg_dbm,
+        },
         "slots": slots,
         "pons": pons,
     })

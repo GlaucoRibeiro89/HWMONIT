@@ -209,7 +209,14 @@ Exemplo de resposta:
 
 ```json
 {
-  "ip": "10.80.3.3",
+  "ip": "1192.168.255.255",
+  "summary": {
+    "ont_total": 864,
+    "ont_online": 830,
+    "ont_offline": 34,
+    "ont_loss": 5,
+    "avg_dbm": -20.14
+  },
   "slots": [
     {
       "slot_path": "0/1",
@@ -249,7 +256,7 @@ Exemplo de resposta:
 
 ```json
 {
-  "ip": "10.80.3.3",
+  "ip": "192.168.255.255",
   "serial": "48575443XXXXXXX",
   "port": "0/1/7",
   "status": 1,
