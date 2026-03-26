@@ -50,6 +50,100 @@
                         </trigger>
                     </triggers>
                 </item>
+                <item>
+                    <uuid>ad3b0c25b735434a8b8aa39ec65203af</uuid>
+                    <name>OLT DBM AVG</name>
+                    <type>DEPENDENT</type>
+                    <key>olt.dbm.avg</key>
+                    <value_type>FLOAT</value_type>
+                    <units>Dbm</units>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <parameters>
+                                <parameter>$.body.summary.avg_dbm</parameter>
+                            </parameters>
+                        </step>
+                    </preprocessing>
+                    <master_item>
+                        <key>HWMONIT</key>
+                    </master_item>
+                    <tags>
+                        <tag>
+                            <tag>SCOPE</tag>
+                            <value>HWMONIT</value>
+                        </tag>
+                    </tags>
+                </item>
+                <item>
+                    <uuid>e6bf4e48fb2041c7b4bb85c89615e859</uuid>
+                    <name>OLT ONT LOSS</name>
+                    <type>DEPENDENT</type>
+                    <key>olt.ont.loss</key>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <parameters>
+                                <parameter>$.body.summary.ont_loss</parameter>
+                            </parameters>
+                        </step>
+                    </preprocessing>
+                    <master_item>
+                        <key>HWMONIT</key>
+                    </master_item>
+                    <tags>
+                        <tag>
+                            <tag>SCOPE</tag>
+                            <value>HWMONIT</value>
+                        </tag>
+                    </tags>
+                </item>
+                <item>
+                    <uuid>b9dad211efe7405e80256cbf37941fa6</uuid>
+                    <name>OLT ONT OFFLINE</name>
+                    <type>DEPENDENT</type>
+                    <key>olt.ont.offline</key>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <parameters>
+                                <parameter>$.body.summary.ont_offline</parameter>
+                            </parameters>
+                        </step>
+                    </preprocessing>
+                    <master_item>
+                        <key>HWMONIT</key>
+                    </master_item>
+                    <tags>
+                        <tag>
+                            <tag>SCOPE</tag>
+                            <value>HWMONIT</value>
+                        </tag>
+                    </tags>
+                </item>
+                <item>
+                    <uuid>a197476a9afd42c0bc758a493bef1155</uuid>
+                    <name>OLT ONT ONLINE</name>
+                    <type>DEPENDENT</type>
+                    <key>olt.ont.online</key>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <parameters>
+                                <parameter>$.body.summary.ont_online</parameter>
+                            </parameters>
+                        </step>
+                    </preprocessing>
+                    <master_item>
+                        <key>HWMONIT</key>
+                    </master_item>
+                    <tags>
+                        <tag>
+                            <tag>SCOPE</tag>
+                            <value>HWMONIT</value>
+                        </tag>
+                    </tags>
+                </item>
             </items>
             <discovery_rules>
                 <discovery_rule>

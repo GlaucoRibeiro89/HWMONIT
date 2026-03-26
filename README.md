@@ -28,6 +28,10 @@ Com o HWMONIT, é possível centralizar a coleta dessas informações e disponib
 
 Entre as métricas que podem ser coletadas e disponibilizadas, estão:
 
+- Total de ONTs/ONUs RX AVG
+- Total de ONTs/ONUs OFFLINE
+- Total de ONTs/ONUs ONLINE
+- Total de ONTs/ONUs LOSS
 - Total de ONTs/ONUs por PON
 - Total de ONTs/ONUs por SLOT
 - ONTs/ONUs online por PON
@@ -209,7 +213,7 @@ Exemplo de resposta:
 
 ```json
 {
-  "ip": "1192.168.255.255",
+  "ip": "192.168.255.255",
   "summary": {
     "ont_total": 864,
     "ont_online": 830,
