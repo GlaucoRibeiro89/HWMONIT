@@ -260,14 +260,13 @@ Exemplo de resposta:
 
 ```json
 {
-  "ip": "192.168.255.255",
-  "serial": "48575443XXXXXXX",
-  "port": "0/1/7",
-  "status": 1,
-  "status_text": "online",
-  "last_down_cause": 5,
-  "last_down_cause_text": "LOS",
-  "rx_power_dbm": -19.42
+  "ip":"192.168.255.255",
+  "serial":"4857XXXXXXXXX",
+  "port":"0/5/1",
+  "status":1,
+  "run_state_text":"online",
+  "last_down_cause_text":"LOSi/LOBi",
+  "rx_power_dbm":-22.36
 }
 
 Mapeamentos aplicados:
