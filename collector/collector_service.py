@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 import mysql.connector
 from mysql.connector import MySQLConnection
+from mysql.connector import Error as MySQLError
 from netmiko import ConnectHandler
 import json
 
@@ -281,47 +282,51 @@ def SavePonInfo(olt_ip: str, ponInfo: List[Dict[str, Any]]) -> Dict[str, int]:
     if not ponInfo:
         raise Exception("Coleta retornou vazia. Sincronização cancelada para evitar deleções indevidas.")
 
-    conn_db = get_db()
-    cursor = conn_db.cursor()
-
-    try:
-        conn_db.start_transaction()
-
-        sql_upsert = """
-        INSERT INTO ont_status (
-            ip, slot, pon, ont_id, port, sn, run_state, last_down_cause,
-            last_uptime, last_downtime, rx_power_dbm, tx_power_dbm,
-            distance_m, ont_type, description
-        ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s,
-            %s, %s, %s
+    lock_error_retry = int(
+        os.getenv(
+            "LOCK_ERRO_RETRY",
+            os.getenv("LOCK_ERROR_RETRY", "3")
         )
-        ON DUPLICATE KEY UPDATE
-            port = VALUES(port),
-            sn = VALUES(sn),
-            run_state = VALUES(run_state),
-            last_down_cause = VALUES(last_down_cause),
-            last_uptime = VALUES(last_uptime),
-            last_downtime = VALUES(last_downtime),
-            rx_power_dbm = VALUES(rx_power_dbm),
-            tx_power_dbm = VALUES(tx_power_dbm),
-            distance_m = VALUES(distance_m),
-            ont_type = VALUES(ont_type),
-            description = VALUES(description),
-            updated_at = CURRENT_TIMESTAMP
-        """
+    )
+    retry_sleep_seconds = float(os.getenv("LOCK_ERROR_RETRY_SLEEP", "1"))
 
-        found_keys = set()
+    sql_upsert = """
+    INSERT INTO ont_status (
+        ip, slot, pon, ont_id, port, sn, run_state, last_down_cause,
+        last_uptime, last_downtime, rx_power_dbm, tx_power_dbm,
+        distance_m, ont_type, description
+    ) VALUES (
+        %s, %s, %s, %s, %s, %s, %s, %s,
+        %s, %s, %s, %s,
+        %s, %s, %s
+    )
+    ON DUPLICATE KEY UPDATE
+        port = VALUES(port),
+        sn = VALUES(sn),
+        run_state = VALUES(run_state),
+        last_down_cause = VALUES(last_down_cause),
+        last_uptime = VALUES(last_uptime),
+        last_downtime = VALUES(last_downtime),
+        rx_power_dbm = VALUES(rx_power_dbm),
+        tx_power_dbm = VALUES(tx_power_dbm),
+        distance_m = VALUES(distance_m),
+        ont_type = VALUES(ont_type),
+        description = VALUES(description),
+        updated_at = CURRENT_TIMESTAMP
+    """
 
-        for item in ponInfo:
-            slot = int(item["slot"])
-            pon = int(item["pon"])
-            ont_id = int(item["ont_id"])
+    values = []
+    found_keys = set()
 
-            found_keys.add((slot, pon, ont_id))
+    for item in ponInfo:
+        slot = int(item["slot"])
+        pon = int(item["pon"])
+        ont_id = int(item["ont_id"])
 
-            vals = (
+        found_keys.add((slot, pon, ont_id))
+
+        values.append(
+            (
                 olt_ip,
                 slot,
                 pon,
@@ -338,38 +343,66 @@ def SavePonInfo(olt_ip: str, ponInfo: List[Dict[str, Any]]) -> Dict[str, int]:
                 item.get("ont_type"),
                 item.get("description"),
             )
-
-            cursor.execute(sql_upsert, vals)
-
-        cursor.execute(
-            "SELECT slot, pon, ont_id FROM ont_status WHERE ip = %s",
-            (olt_ip,),
         )
-        db_keys = set((int(r[0]), int(r[1]), int(r[2])) for r in cursor.fetchall())
 
-        stale_keys = db_keys - found_keys
+    attempt = 0
+    while True:
+        conn_db = None
+        cursor = None
+        attempt += 1
 
-        if stale_keys:
-            sql_delete = """
-            DELETE FROM ont_status
-            WHERE ip = %s AND slot = %s AND pon = %s AND ont_id = %s
-            """
-            delete_values = [(olt_ip, slot, pon, ont_id) for (slot, pon, ont_id) in stale_keys]
-            cursor.executemany(sql_delete, delete_values)
+        try:
+            conn_db = get_db()
+            cursor = conn_db.cursor()
+            conn_db.start_transaction()
+            cursor.executemany(sql_upsert, values)
+            conn_db.commit()
 
-        conn_db.commit()
+            if attempt > 1:
+                log_event(
+                    "save_retry_success",
+                    ip=olt_ip,
+                    attempt=attempt,
+                    retries_configured=lock_error_retry,
+                    received=len(found_keys),
+                )
 
-        return {
-            "received": len(found_keys),
-            "removed": len(stale_keys),
-        }
+            return {
+                "received": len(found_keys),
+                "removed": 0,
+            }
 
-    except Exception:
-        conn_db.rollback()
-        raise
-    finally:
-        cursor.close()
-        conn_db.close()
+        except MySQLError as e:
+            if conn_db:
+                conn_db.rollback()
+
+            is_lock_error = getattr(e, "errno", None) in (1205, 1213)
+            can_retry = is_lock_error and attempt <= (lock_error_retry + 1)
+
+            if can_retry:
+                log_event(
+                    "save_retry_wait",
+                    ip=olt_ip,
+                    attempt=attempt,
+                    retries_configured=lock_error_retry,
+                    mysql_errno=getattr(e, "errno", None),
+                    error=str(e),
+                )
+                time.sleep(retry_sleep_seconds)
+                continue
+
+            raise
+
+        except Exception:
+            if conn_db:
+                conn_db.rollback()
+            raise
+
+        finally:
+            if cursor:
+                cursor.close()
+            if conn_db:
+                conn_db.close()
 
 
 def GetPonInfo(conn, slots: List[str]) -> List[Dict[str, Any]]:
