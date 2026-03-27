@@ -498,7 +498,7 @@ def SavePonInfo(olt_ip: str, ponInfo: List[Dict[str, Any]]) -> Dict[str, int]:
 
     def _save_operation() -> Dict[str, int]:
         conn_db = get_db()
-        cursor = conn_db.cursor()
+        cursor = conn_db.cursor(buffered=True)
         lock_acquired = False
 
         try:
@@ -530,6 +530,7 @@ def SavePonInfo(olt_ip: str, ponInfo: List[Dict[str, Any]]) -> Dict[str, int]:
             if lock_acquired:
                 try:
                     cursor.execute("SELECT RELEASE_LOCK(%s)", (lock_name,))
+                    cursor.fetchone()
                 except Exception:
                     pass
 
