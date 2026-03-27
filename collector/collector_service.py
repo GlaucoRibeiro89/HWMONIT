@@ -1,16 +1,16 @@
 #!/usr/bin/python3
 # -*- coding: utf8 -*-
 
-import json
 import os
 import time
 import uuid
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional
 
 import mysql.connector
 from mysql.connector import MySQLConnection
 from netmiko import ConnectHandler
+import json
 
 
 # CONFIG MYSQL
@@ -24,20 +24,6 @@ mysqlConfig = {
 
 EMPTY_PON_SENTINEL_ONT_ID = int(os.getenv("EMPTY_PON_SENTINEL_ONT_ID", "65535"))
 
-DB_RETRY_ATTEMPTS = int(os.getenv("DB_RETRY_ATTEMPTS", "4"))
-DB_RETRY_BASE_SECONDS = float(os.getenv("DB_RETRY_BASE_SECONDS", "2"))
-DB_LOCK_WAIT_TIMEOUT = int(os.getenv("DB_LOCK_WAIT_TIMEOUT", "60"))
-DB_NAMED_LOCK_TIMEOUT = int(os.getenv("DB_NAMED_LOCK_TIMEOUT", "20"))
-DB_UPSERT_CHUNK_SIZE = int(os.getenv("DB_UPSERT_CHUNK_SIZE", "500"))
-
-OLT_READ_TIMEOUT = float(os.getenv("OLT_READ_TIMEOUT", "120"))
-OLT_LAST_READ = float(os.getenv("OLT_LAST_READ", "0.2"))
-OLT_CMD_RETRIES = int(os.getenv("OLT_CMD_RETRIES", "2"))
-OLT_CMD_RETRY_SLEEP = float(os.getenv("OLT_CMD_RETRY_SLEEP", "2"))
-OLT_CONNECT_RETRIES = int(os.getenv("OLT_CONNECT_RETRIES", "2"))
-OLT_CONNECT_RETRY_SLEEP = float(os.getenv("OLT_CONNECT_RETRY_SLEEP", "3"))
-OLT_SESSION_LOG_DIR = os.getenv("OLT_SESSION_LOG_DIR", "").strip()
-
 
 def get_db() -> MySQLConnection:
     return mysql.connector.connect(
@@ -46,7 +32,6 @@ def get_db() -> MySQLConnection:
         user=mysqlConfig["user"],
         password=mysqlConfig["pw"],
         database=mysqlConfig["db"],
-        autocommit=False,
     )
 
 
@@ -58,16 +43,6 @@ def log_event(message: str, **fields) -> None:
     }
     payload.update(fields)
     print(json.dumps(payload, ensure_ascii=False, default=str), flush=True)
-
-
-def build_session_log_path(olt_ip: str) -> Optional[str]:
-    if not OLT_SESSION_LOG_DIR:
-        return None
-
-    os.makedirs(OLT_SESSION_LOG_DIR, exist_ok=True)
-    safe_ip = olt_ip.replace(".", "_").replace(":", "_")
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    return os.path.join(OLT_SESSION_LOG_DIR, f"collector_{safe_ip}_{stamp}.log")
 
 
 def build_device(olt_ip: str) -> Dict[str, Any]:
@@ -86,7 +61,7 @@ def build_device(olt_ip: str) -> Dict[str, Any]:
     if missing:
         raise ValueError(f"Variáveis obrigatórias ausentes: {', '.join(missing)}")
 
-    device = {
+    return {
         "device_type": "huawei_smartax",
         "ip": olt_ip,
         "port": olt_port,
@@ -95,15 +70,7 @@ def build_device(olt_ip: str) -> Dict[str, Any]:
         "conn_timeout": int(os.getenv("OLT_CONN_TIMEOUT", "20")),
         "banner_timeout": int(os.getenv("OLT_BANNER_TIMEOUT", "20")),
         "auth_timeout": int(os.getenv("OLT_AUTH_TIMEOUT", "20")),
-        "global_delay_factor": float(os.getenv("OLT_GLOBAL_DELAY_FACTOR", "1.0")),
-        "fast_cli": True,
     }
-
-    session_log = build_session_log_path(olt_ip)
-    if session_log:
-        device["session_log"] = session_log
-
-    return device
 
 
 def normalize_value(value: Any) -> Optional[str]:
@@ -151,157 +118,11 @@ def parse_dt_br(value: Any) -> Optional[datetime]:
         return None
 
 
-def chunked(items: Sequence[Any], size: int) -> Iterable[Sequence[Any]]:
-    if size <= 0:
-        size = 500
-
-    for i in range(0, len(items), size):
-        yield items[i:i + size]
-
-
-def is_retryable_mysql_error(exc: Exception) -> bool:
-    if isinstance(exc, mysql.connector.Error):
-        if exc.errno in (1205, 1213):
-            return True
-
-    error_text = str(exc).lower()
-    return (
-        "lock wait timeout exceeded" in error_text
-        or "deadlock found when trying to get lock" in error_text
-    )
-
-
-def run_db_with_retry(operation_name: str, callback):
-    last_exc = None
-
-    for attempt in range(1, DB_RETRY_ATTEMPTS + 1):
-        try:
-            return callback()
-        except Exception as exc:
-            last_exc = exc
-
-            if not is_retryable_mysql_error(exc) or attempt >= DB_RETRY_ATTEMPTS:
-                raise
-
-            sleep_seconds = round(DB_RETRY_BASE_SECONDS * attempt, 2)
-            log_event(
-                "db_retry",
-                operation=operation_name,
-                attempt=attempt,
-                sleep_seconds=sleep_seconds,
-                error=str(exc),
-            )
-            time.sleep(sleep_seconds)
-
-    if last_exc:
-        raise last_exc
-
-    raise RuntimeError(f"Falha inesperada em operação de banco: {operation_name}")
-
-
-def execute_cli(conn, cmd: str) -> str:
-    last_exc = None
-
-    for attempt in range(1, OLT_CMD_RETRIES + 1):
-        try:
-            output = conn.send_command(
-                cmd,
-                read_timeout=OLT_READ_TIMEOUT,
-                expect_string=r"(?:>|#)\s*$",
-                strip_prompt=False,
-                strip_command=False,
-                cmd_verify=False,
-            )
-            return str(output or "")
-        except Exception as exc:
-            last_exc = exc
-            error_text = str(exc).lower()
-
-            try:
-                conn.clear_buffer()
-            except Exception:
-                pass
-
-            use_timing_fallback = (
-                "pattern not detected" in error_text
-                or "search pattern never detected" in error_text
-                or "prompt" in error_text
-            )
-
-            if use_timing_fallback:
-                try:
-                    output = conn.send_command_timing(
-                        cmd,
-                        read_timeout=OLT_READ_TIMEOUT,
-                        last_read=OLT_LAST_READ,
-                        strip_prompt=False,
-                        strip_command=False,
-                        cmd_verify=False,
-                    )
-                    return str(output or "")
-                except Exception as timing_exc:
-                    last_exc = timing_exc
-
-            log_event(
-                "olt_command_retry",
-                ip=getattr(conn, "host", "unknown"),
-                command=cmd,
-                attempt=attempt,
-                error=str(last_exc),
-            )
-
-            if attempt >= OLT_CMD_RETRIES:
-                raise last_exc
-
-            time.sleep(OLT_CMD_RETRY_SLEEP * attempt)
-
-    if last_exc:
-        raise last_exc
-
-    raise RuntimeError(f"Falha inesperada ao executar comando: {cmd}")
-
-
-def connect_olt(ip: str):
-    last_exc = None
-
-    for attempt in range(1, OLT_CONNECT_RETRIES + 1):
-        conn = None
-        try:
-            device = build_device(ip)
-            conn = ConnectHandler(**device)
-            conn.enable()
-            return conn
-        except Exception as exc:
-            last_exc = exc
-            log_event(
-                "olt_connect_retry",
-                ip=ip,
-                attempt=attempt,
-                error=str(exc),
-            )
-
-            if conn:
-                try:
-                    conn.disconnect()
-                except Exception:
-                    pass
-
-            if attempt >= OLT_CONNECT_RETRIES:
-                raise
-
-            time.sleep(OLT_CONNECT_RETRY_SLEEP * attempt)
-
-    if last_exc:
-        raise last_exc
-
-    raise RuntimeError(f"Falha inesperada ao conectar na OLT {ip}")
-
-
 def GetBoards(conn) -> List[str]:
     boards = []
     cmd = "display board 0"
 
-    result = execute_cli(conn, cmd)
+    result = conn.send_command(cmd)
 
     for line in result.splitlines():
         line = line.strip()
@@ -340,6 +161,7 @@ def parse_ont_summary(result: str, slot: str, pon: int) -> List[Dict[str, Any]]:
         if not line or line.startswith("----"):
             continue
 
+        # Detecta início da tabela de estado
         if line.startswith("ONT") and "Run" in line and "State" not in line:
             section = "state_header"
             continue
@@ -348,6 +170,7 @@ def parse_ont_summary(result: str, slot: str, pon: int) -> List[Dict[str, Any]]:
             section = "state"
             continue
 
+        # Detecta início da tabela de detalhes
         if line.startswith("ONT") and "SN" in line and "Rx/Tx" in line:
             section = "detail_header"
             continue
@@ -356,6 +179,7 @@ def parse_ont_summary(result: str, slot: str, pon: int) -> List[Dict[str, Any]]:
             section = "detail"
             continue
 
+        # Linhas da tabela de estado
         if section == "state" and line and line[0].isdigit():
             parts = line.split(None, 6)
 
@@ -375,6 +199,7 @@ def parse_ont_summary(result: str, slot: str, pon: int) -> List[Dict[str, Any]]:
 
             continue
 
+        # Linhas da tabela de detalhes
         if section == "detail" and line and line[0].isdigit():
             parts = line.split(None, 5)
 
@@ -452,114 +277,99 @@ def build_empty_pon_record(slot: str, pon: int) -> Dict[str, Any]:
     }
 
 
-def build_db_rows(olt_ip: str, ponInfo: List[Dict[str, Any]]) -> Tuple[List[Tuple[Any, ...]], set]:
-    rows = []
-    found_keys = set()
-
-    for item in ponInfo:
-        slot = int(item["slot"])
-        pon = int(item["pon"])
-        ont_id = int(item["ont_id"])
-
-        found_keys.add((slot, pon, ont_id))
-
-        rows.append((
-            olt_ip,
-            slot,
-            pon,
-            ont_id,
-            item.get("port"),
-            item.get("sn"),
-            item.get("run_state"),
-            item.get("last_down_cause"),
-            parse_dt_br(item.get("last_uptime")),
-            parse_dt_br(item.get("last_downtime")),
-            to_float_or_none(item.get("rx_power_dbm")),
-            to_float_or_none(item.get("tx_power_dbm")),
-            to_int_or_none(item.get("distance_m")),
-            item.get("ont_type"),
-            item.get("description"),
-        ))
-
-    rows.sort(key=lambda x: (x[1], x[2], x[3]))
-    return rows, found_keys
-
-
 def SavePonInfo(olt_ip: str, ponInfo: List[Dict[str, Any]]) -> Dict[str, int]:
     if not ponInfo:
-        raise Exception("Coleta retornou vazia. Sincronização cancelada para evitar sobrescrita indevida.")
+        raise Exception("Coleta retornou vazia. Sincronização cancelada para evitar deleções indevidas.")
 
-    rows, found_keys = build_db_rows(olt_ip, ponInfo)
+    conn_db = get_db()
+    cursor = conn_db.cursor()
 
-    sql_upsert = """
-    INSERT INTO ont_status (
-        ip, slot, pon, ont_id, port, sn, run_state, last_down_cause,
-        last_uptime, last_downtime, rx_power_dbm, tx_power_dbm,
-        distance_m, ont_type, description
-    ) VALUES (
-        %s, %s, %s, %s, %s, %s, %s, %s,
-        %s, %s, %s, %s,
-        %s, %s, %s
-    )
-    ON DUPLICATE KEY UPDATE
-        port = VALUES(port),
-        sn = VALUES(sn),
-        run_state = VALUES(run_state),
-        last_down_cause = VALUES(last_down_cause),
-        last_uptime = VALUES(last_uptime),
-        last_downtime = VALUES(last_downtime),
-        rx_power_dbm = VALUES(rx_power_dbm),
-        tx_power_dbm = VALUES(tx_power_dbm),
-        distance_m = VALUES(distance_m),
-        ont_type = VALUES(ont_type),
-        description = VALUES(description),
-        updated_at = CURRENT_TIMESTAMP
-    """
+    try:
+        conn_db.start_transaction()
 
-    lock_name = f"hwmonit:ont_status:{olt_ip}"
+        sql_upsert = """
+        INSERT INTO ont_status (
+            ip, slot, pon, ont_id, port, sn, run_state, last_down_cause,
+            last_uptime, last_downtime, rx_power_dbm, tx_power_dbm,
+            distance_m, ont_type, description
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s,
+            %s, %s, %s
+        )
+        ON DUPLICATE KEY UPDATE
+            port = VALUES(port),
+            sn = VALUES(sn),
+            run_state = VALUES(run_state),
+            last_down_cause = VALUES(last_down_cause),
+            last_uptime = VALUES(last_uptime),
+            last_downtime = VALUES(last_downtime),
+            rx_power_dbm = VALUES(rx_power_dbm),
+            tx_power_dbm = VALUES(tx_power_dbm),
+            distance_m = VALUES(distance_m),
+            ont_type = VALUES(ont_type),
+            description = VALUES(description),
+            updated_at = CURRENT_TIMESTAMP
+        """
 
-    def _save_operation() -> Dict[str, int]:
-        conn_db = get_db()
-        cursor = conn_db.cursor(buffered=True)
-        lock_acquired = False
+        found_keys = set()
 
-        try:
-            cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED")
-            cursor.execute("SET SESSION innodb_lock_wait_timeout = %s", (DB_LOCK_WAIT_TIMEOUT,))
-            cursor.execute("SELECT GET_LOCK(%s, %s)", (lock_name, DB_NAMED_LOCK_TIMEOUT))
-            lock_result = cursor.fetchone()
-            lock_acquired = bool(lock_result and lock_result[0] == 1)
+        for item in ponInfo:
+            slot = int(item["slot"])
+            pon = int(item["pon"])
+            ont_id = int(item["ont_id"])
 
-            if not lock_acquired:
-                raise RuntimeError(f"Não foi possível obter lock de sincronização para a OLT {olt_ip}")
+            found_keys.add((slot, pon, ont_id))
 
-            conn_db.start_transaction()
+            vals = (
+                olt_ip,
+                slot,
+                pon,
+                ont_id,
+                item.get("port"),
+                item.get("sn"),
+                item.get("run_state"),
+                item.get("last_down_cause"),
+                parse_dt_br(item.get("last_uptime")),
+                parse_dt_br(item.get("last_downtime")),
+                to_float_or_none(item.get("rx_power_dbm")),
+                to_float_or_none(item.get("tx_power_dbm")),
+                to_int_or_none(item.get("distance_m")),
+                item.get("ont_type"),
+                item.get("description"),
+            )
 
-            for row_chunk in chunked(rows, DB_UPSERT_CHUNK_SIZE):
-                cursor.executemany(sql_upsert, row_chunk)
+            cursor.execute(sql_upsert, vals)
 
-            conn_db.commit()
+        cursor.execute(
+            "SELECT slot, pon, ont_id FROM ont_status WHERE ip = %s",
+            (olt_ip,),
+        )
+        db_keys = set((int(r[0]), int(r[1]), int(r[2])) for r in cursor.fetchall())
 
-            return {
-                "received": len(found_keys),
-                "removed": 0,
-            }
+        stale_keys = db_keys - found_keys
 
-        except Exception:
-            conn_db.rollback()
-            raise
-        finally:
-            if lock_acquired:
-                try:
-                    cursor.execute("SELECT RELEASE_LOCK(%s)", (lock_name,))
-                    cursor.fetchone()
-                except Exception:
-                    pass
+        if stale_keys:
+            sql_delete = """
+            DELETE FROM ont_status
+            WHERE ip = %s AND slot = %s AND pon = %s AND ont_id = %s
+            """
+            delete_values = [(olt_ip, slot, pon, ont_id) for (slot, pon, ont_id) in stale_keys]
+            cursor.executemany(sql_delete, delete_values)
 
-            cursor.close()
-            conn_db.close()
+        conn_db.commit()
 
-    return run_db_with_retry("SavePonInfo", _save_operation)
+        return {
+            "received": len(found_keys),
+            "removed": len(stale_keys),
+        }
+
+    except Exception:
+        conn_db.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn_db.close()
 
 
 def GetPonInfo(conn, slots: List[str]) -> List[Dict[str, Any]]:
@@ -571,7 +381,7 @@ def GetPonInfo(conn, slots: List[str]) -> List[Dict[str, Any]]:
     for slot in slots:
         for pon in range(0, 16):
             cmd = f"display ont info summary 0/{slot}/{pon} | no-more"
-            result = execute_cli(conn, cmd)
+            result = conn.send_command(cmd)
 
             parsed = parse_ont_summary(result, slot, pon)
             if parsed:
@@ -589,140 +399,103 @@ def GetPonInfo(conn, slots: List[str]) -> List[Dict[str, Any]]:
 
 
 def ensure_state_row(ip: str) -> None:
-    def _operation() -> None:
-        conn = get_db()
-        cur = conn.cursor()
-        try:
-            cur.execute(
-                """
-                INSERT INTO olt_collect_state (ip, status, is_locked)
-                VALUES (%s, 'idle', 0)
-                ON DUPLICATE KEY UPDATE ip = VALUES(ip)
-                """,
-                (ip,),
-            )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            cur.close()
-            conn.close()
-
-    run_db_with_retry("ensure_state_row", _operation)
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO olt_collect_state (ip, status, is_locked)
+            VALUES (%s, 'idle', 0)
+            ON DUPLICATE KEY UPDATE ip = VALUES(ip)
+        """, (ip,))
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
 
 
 def enqueue_collect(ip: str, lease_minutes: int = 10) -> str:
     ensure_state_row(ip)
     token = str(uuid.uuid4())
 
-    def _operation() -> str:
-        conn = get_db()
-        cur = conn.cursor()
-        try:
-            cur.execute(
-                """
-                UPDATE olt_collect_state
-                   SET is_locked = 1,
-                       status = 'running',
-                       lock_token = %s,
-                       lock_expires_at = DATE_ADD(NOW(3), INTERVAL %s MINUTE),
-                       last_started_at = NOW(3),
-                       last_finished_at = NULL,
-                       last_error = NULL
-                 WHERE ip = %s
-                   AND (
-                        is_locked = 0
-                        OR lock_expires_at IS NULL
-                        OR lock_expires_at < NOW(3)
-                   )
-                """,
-                (token, lease_minutes, ip),
-            )
-            conn.commit()
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            UPDATE olt_collect_state
+               SET is_locked = 1,
+                   status = 'running',
+                   lock_token = %s,
+                   lock_expires_at = DATE_ADD(NOW(3), INTERVAL %s MINUTE),
+                   last_started_at = NOW(3),
+                   last_finished_at = NULL,
+                   last_error = NULL
+             WHERE ip = %s
+               AND (
+                    is_locked = 0
+                    OR lock_expires_at IS NULL
+                    OR lock_expires_at < NOW(3)
+               )
+        """, (token, lease_minutes, ip))
+        conn.commit()
 
-            if cur.rowcount != 1:
-                raise RuntimeError(f"Já existe coleta em execução para a OLT {ip}")
+        if cur.rowcount != 1:
+            raise RuntimeError(f"Já existe coleta em execução para a OLT {ip}")
 
-            return token
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            cur.close()
-            conn.close()
-
-    return run_db_with_retry("enqueue_collect", _operation)
+        return token
+    finally:
+        cur.close()
+        conn.close()
 
 
 def finish_success(ip: str, token: str, duration_seconds: float) -> None:
-    def _operation() -> None:
-        conn = get_db()
-        cur = conn.cursor()
-        try:
-            cur.execute(
-                """
-                UPDATE olt_collect_state
-                   SET status = 'success',
-                       last_duration_seconds = %s,
-                       is_locked = 0,
-                       lock_token = NULL,
-                       lock_expires_at = NULL,
-                       last_finished_at = NOW(3),
-                       last_error = NULL
-                 WHERE ip = %s
-                   AND lock_token = %s
-                """,
-                (round(duration_seconds, 2), ip, token),
-            )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            cur.close()
-            conn.close()
-
-    run_db_with_retry("finish_success", _operation)
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            UPDATE olt_collect_state
+               SET status = 'success',
+                   last_duration_seconds = %s,
+                   is_locked = 0,
+                   lock_token = NULL,
+                   lock_expires_at = NULL,
+                   last_finished_at = NOW(3),
+                   last_error = NULL
+             WHERE ip = %s
+               AND lock_token = %s
+        """, (round(duration_seconds, 2), ip, token))
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
 
 
 def finish_error(ip: str, token: str, duration_seconds: float, error: str) -> None:
-    def _operation() -> None:
-        conn = get_db()
-        cur = conn.cursor()
-        try:
-            cur.execute(
-                """
-                UPDATE olt_collect_state
-                   SET status = 'error',
-                       last_duration_seconds = %s,
-                       is_locked = 0,
-                       lock_token = NULL,
-                       lock_expires_at = NULL,
-                       last_finished_at = NOW(3),
-                       last_error = %s
-                 WHERE ip = %s
-                   AND lock_token = %s
-                """,
-                (round(duration_seconds, 2), str(error)[:1000], ip, token),
-            )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            cur.close()
-            conn.close()
-
-    run_db_with_retry("finish_error", _operation)
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            UPDATE olt_collect_state
+               SET status = 'error',
+                   last_duration_seconds = %s,
+                   is_locked = 0,
+                   lock_token = NULL,
+                   lock_expires_at = NULL,
+                   last_finished_at = NOW(3),
+                   last_error = %s
+             WHERE ip = %s
+               AND lock_token = %s
+        """, (round(duration_seconds, 2), str(error)[:1000], ip, token))
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
 
 
 def get_collect_state(ip: str) -> Optional[Dict[str, Any]]:
     conn = get_db()
     cur = conn.cursor(dictionary=True)
     try:
-        cur.execute(
-            """
+        cur.execute("""
             SELECT
                 ip,
                 status,
@@ -737,9 +510,7 @@ def get_collect_state(ip: str) -> Optional[Dict[str, Any]]:
                 updated_at
             FROM olt_collect_state
             WHERE ip = %s
-            """,
-            (ip,),
-        )
+        """, (ip,))
         return cur.fetchone()
     finally:
         cur.close()
@@ -751,7 +522,10 @@ def _do_collect(ip: str) -> Dict[str, Any]:
     conn = None
 
     try:
-        conn = connect_olt(ip)
+        device = build_device(ip)
+
+        conn = ConnectHandler(**device)
+        conn.enable()
 
         boards = GetBoards(conn)
         pon_info = GetPonInfo(conn, boards)
@@ -775,10 +549,7 @@ def _do_collect(ip: str) -> Dict[str, Any]:
 
     finally:
         if conn:
-            try:
-                conn.disconnect()
-            except Exception:
-                pass
+            conn.disconnect()
 
 
 def run_collection_job(ip: str, token: str) -> None:
