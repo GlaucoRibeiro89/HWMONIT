@@ -31,8 +31,8 @@ DB_NAMED_LOCK_TIMEOUT = int(os.getenv("DB_NAMED_LOCK_TIMEOUT", "20"))
 DB_UPSERT_CHUNK_SIZE = int(os.getenv("DB_UPSERT_CHUNK_SIZE", "500"))
 
 OLT_READ_TIMEOUT = float(os.getenv("OLT_READ_TIMEOUT", "120"))
-OLT_LAST_READ = float(os.getenv("OLT_LAST_READ", "2"))
-OLT_CMD_RETRIES = int(os.getenv("OLT_CMD_RETRIES", "3"))
+OLT_LAST_READ = float(os.getenv("OLT_LAST_READ", "0.2"))
+OLT_CMD_RETRIES = int(os.getenv("OLT_CMD_RETRIES", "2"))
 OLT_CMD_RETRY_SLEEP = float(os.getenv("OLT_CMD_RETRY_SLEEP", "2"))
 OLT_CONNECT_RETRIES = int(os.getenv("OLT_CONNECT_RETRIES", "2"))
 OLT_CONNECT_RETRY_SLEEP = float(os.getenv("OLT_CONNECT_RETRY_SLEEP", "3"))
@@ -95,8 +95,8 @@ def build_device(olt_ip: str) -> Dict[str, Any]:
         "conn_timeout": int(os.getenv("OLT_CONN_TIMEOUT", "20")),
         "banner_timeout": int(os.getenv("OLT_BANNER_TIMEOUT", "20")),
         "auth_timeout": int(os.getenv("OLT_AUTH_TIMEOUT", "20")),
-        "global_delay_factor": float(os.getenv("OLT_GLOBAL_DELAY_FACTOR", "1.5")),
-        "fast_cli": False,
+        "global_delay_factor": float(os.getenv("OLT_GLOBAL_DELAY_FACTOR", "1.0")),
+        "fast_cli": True,
     }
 
     session_log = build_session_log_path(olt_ip)
@@ -204,10 +204,10 @@ def execute_cli(conn, cmd: str) -> str:
 
     for attempt in range(1, OLT_CMD_RETRIES + 1):
         try:
-            output = conn.send_command_timing(
+            output = conn.send_command(
                 cmd,
                 read_timeout=OLT_READ_TIMEOUT,
-                last_read=OLT_LAST_READ,
+                expect_string=r"(?:>|#)\s*$",
                 strip_prompt=False,
                 strip_command=False,
                 cmd_verify=False,
@@ -215,21 +215,43 @@ def execute_cli(conn, cmd: str) -> str:
             return str(output or "")
         except Exception as exc:
             last_exc = exc
-            log_event(
-                "olt_command_retry",
-                ip=getattr(conn, "host", "unknown"),
-                command=cmd,
-                attempt=attempt,
-                error=str(exc),
-            )
-
-            if attempt >= OLT_CMD_RETRIES:
-                raise
+            error_text = str(exc).lower()
 
             try:
                 conn.clear_buffer()
             except Exception:
                 pass
+
+            use_timing_fallback = (
+                "pattern not detected" in error_text
+                or "search pattern never detected" in error_text
+                or "prompt" in error_text
+            )
+
+            if use_timing_fallback:
+                try:
+                    output = conn.send_command_timing(
+                        cmd,
+                        read_timeout=OLT_READ_TIMEOUT,
+                        last_read=OLT_LAST_READ,
+                        strip_prompt=False,
+                        strip_command=False,
+                        cmd_verify=False,
+                    )
+                    return str(output or "")
+                except Exception as timing_exc:
+                    last_exc = timing_exc
+
+            log_event(
+                "olt_command_retry",
+                ip=getattr(conn, "host", "unknown"),
+                command=cmd,
+                attempt=attempt,
+                error=str(last_exc),
+            )
+
+            if attempt >= OLT_CMD_RETRIES:
+                raise last_exc
 
             time.sleep(OLT_CMD_RETRY_SLEEP * attempt)
 
