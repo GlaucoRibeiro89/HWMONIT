@@ -23,6 +23,8 @@ mysqlConfig = {
 }
 
 EMPTY_PON_SENTINEL_ONT_ID = int(os.getenv("EMPTY_PON_SENTINEL_ONT_ID", "65535"))
+LOCK_ERRO_RETRY = int(os.getenv("LOCK_ERRO_RETRY", os.getenv("LOCK_ERROR_RETRY", "3")))
+LOCK_ERROR_RETRY_SLEEP = float(os.getenv("LOCK_ERROR_RETRY_SLEEP", "1"))
 
 
 def get_db() -> MySQLConnection:
@@ -118,11 +120,27 @@ def parse_dt_br(value: Any) -> Optional[datetime]:
         return None
 
 
-def GetBoards(conn) -> List[str]:
+def safe_send_command(conn, cmd: str, olt_ip: str, phase: str, **extra) -> str:
+    try:
+        return conn.send_command(cmd)
+    except Exception as e:
+        log_event(
+            "olt_command_error",
+            ip=olt_ip,
+            status="error",
+            phase=phase,
+            command=cmd,
+            error=str(e),
+            **extra,
+        )
+        raise
+
+
+def GetBoards(conn, olt_ip: str) -> List[str]:
     boards = []
     cmd = "display board 0"
 
-    result = conn.send_command(cmd)
+    result = safe_send_command(conn, cmd, olt_ip, phase="get_boards")
 
     for line in result.splitlines():
         line = line.strip()
@@ -281,47 +299,43 @@ def SavePonInfo(olt_ip: str, ponInfo: List[Dict[str, Any]]) -> Dict[str, int]:
     if not ponInfo:
         raise Exception("Coleta retornou vazia. Sincronização cancelada para evitar deleções indevidas.")
 
-    conn_db = get_db()
-    cursor = conn_db.cursor()
+    sql_upsert = """
+    INSERT INTO ont_status (
+        ip, slot, pon, ont_id, port, sn, run_state, last_down_cause,
+        last_uptime, last_downtime, rx_power_dbm, tx_power_dbm,
+        distance_m, ont_type, description
+    ) VALUES (
+        %s, %s, %s, %s, %s, %s, %s, %s,
+        %s, %s, %s, %s,
+        %s, %s, %s
+    )
+    ON DUPLICATE KEY UPDATE
+        port = VALUES(port),
+        sn = VALUES(sn),
+        run_state = VALUES(run_state),
+        last_down_cause = VALUES(last_down_cause),
+        last_uptime = VALUES(last_uptime),
+        last_downtime = VALUES(last_downtime),
+        rx_power_dbm = VALUES(rx_power_dbm),
+        tx_power_dbm = VALUES(tx_power_dbm),
+        distance_m = VALUES(distance_m),
+        ont_type = VALUES(ont_type),
+        description = VALUES(description),
+        updated_at = CURRENT_TIMESTAMP
+    """
 
-    try:
-        conn_db.start_transaction()
+    values = []
+    found_keys = set()
 
-        sql_upsert = """
-        INSERT INTO ont_status (
-            ip, slot, pon, ont_id, port, sn, run_state, last_down_cause,
-            last_uptime, last_downtime, rx_power_dbm, tx_power_dbm,
-            distance_m, ont_type, description
-        ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s,
-            %s, %s, %s
-        )
-        ON DUPLICATE KEY UPDATE
-            port = VALUES(port),
-            sn = VALUES(sn),
-            run_state = VALUES(run_state),
-            last_down_cause = VALUES(last_down_cause),
-            last_uptime = VALUES(last_uptime),
-            last_downtime = VALUES(last_downtime),
-            rx_power_dbm = VALUES(rx_power_dbm),
-            tx_power_dbm = VALUES(tx_power_dbm),
-            distance_m = VALUES(distance_m),
-            ont_type = VALUES(ont_type),
-            description = VALUES(description),
-            updated_at = CURRENT_TIMESTAMP
-        """
+    for item in ponInfo:
+        slot = int(item["slot"])
+        pon = int(item["pon"])
+        ont_id = int(item["ont_id"])
 
-        found_keys = set()
+        found_keys.add((slot, pon, ont_id))
 
-        for item in ponInfo:
-            slot = int(item["slot"])
-            pon = int(item["pon"])
-            ont_id = int(item["ont_id"])
-
-            found_keys.add((slot, pon, ont_id))
-
-            vals = (
+        values.append(
+            (
                 olt_ip,
                 slot,
                 pon,
@@ -338,41 +352,93 @@ def SavePonInfo(olt_ip: str, ponInfo: List[Dict[str, Any]]) -> Dict[str, int]:
                 item.get("ont_type"),
                 item.get("description"),
             )
-
-            cursor.execute(sql_upsert, vals)
-
-        cursor.execute(
-            "SELECT slot, pon, ont_id FROM ont_status WHERE ip = %s",
-            (olt_ip,),
         )
-        db_keys = set((int(r[0]), int(r[1]), int(r[2])) for r in cursor.fetchall())
 
-        stale_keys = db_keys - found_keys
+    last_error = None
 
-        if stale_keys:
-            sql_delete = """
-            DELETE FROM ont_status
-            WHERE ip = %s AND slot = %s AND pon = %s AND ont_id = %s
-            """
-            delete_values = [(olt_ip, slot, pon, ont_id) for (slot, pon, ont_id) in stale_keys]
-            cursor.executemany(sql_delete, delete_values)
+    for attempt in range(LOCK_ERRO_RETRY + 1):
+        conn_db = None
+        cursor = None
+        try:
+            conn_db = get_db()
+            cursor = conn_db.cursor()
+            conn_db.start_transaction()
+            cursor.executemany(sql_upsert, values)
+            conn_db.commit()
 
-        conn_db.commit()
+            if attempt > 0:
+                log_event(
+                    "db_save_retry_succeeded",
+                    ip=olt_ip,
+                    status="success",
+                    retries=attempt,
+                    received=len(found_keys),
+                )
 
-        return {
-            "received": len(found_keys),
-            "removed": len(stale_keys),
-        }
+            return {"received": len(found_keys)}
 
-    except Exception:
-        conn_db.rollback()
-        raise
-    finally:
-        cursor.close()
-        conn_db.close()
+        except mysql.connector.Error as e:
+            last_error = e
+            errno = getattr(e, "errno", None)
+            is_lock_error = errno in (1205, 1213)
+
+            if conn_db:
+                conn_db.rollback()
+
+            if is_lock_error and attempt < LOCK_ERRO_RETRY:
+                retry_in = LOCK_ERROR_RETRY_SLEEP * (attempt + 1)
+                log_event(
+                    "db_save_retry",
+                    ip=olt_ip,
+                    status="retry",
+                    attempt=attempt + 1,
+                    max_retries=LOCK_ERRO_RETRY,
+                    retry_in_seconds=round(retry_in, 2),
+                    mysql_errno=errno,
+                    error=str(e),
+                )
+                time.sleep(retry_in)
+                continue
+
+            log_event(
+                "db_save_error",
+                ip=olt_ip,
+                status="error",
+                attempt=attempt + 1,
+                max_retries=LOCK_ERRO_RETRY,
+                mysql_errno=errno,
+                error=str(e),
+            )
+            raise
+
+        except Exception as e:
+            last_error = e
+            if conn_db:
+                conn_db.rollback()
+
+            log_event(
+                "db_save_error",
+                ip=olt_ip,
+                status="error",
+                attempt=attempt + 1,
+                max_retries=LOCK_ERRO_RETRY,
+                error=str(e),
+            )
+            raise
+
+        finally:
+            if cursor:
+                cursor.close()
+            if conn_db:
+                conn_db.close()
+
+    if last_error:
+        raise last_error
+
+    raise RuntimeError(f"Falha ao salvar dados da OLT {olt_ip}")
 
 
-def GetPonInfo(conn, slots: List[str]) -> List[Dict[str, Any]]:
+def GetPonInfo(conn, olt_ip: str, slots: List[str]) -> List[Dict[str, Any]]:
     ponInfo = []
 
     sleep_pons = float(os.getenv("SLEEP_PONS", "0"))
@@ -381,7 +447,14 @@ def GetPonInfo(conn, slots: List[str]) -> List[Dict[str, Any]]:
     for slot in slots:
         for pon in range(0, 16):
             cmd = f"display ont info summary 0/{slot}/{pon} | no-more"
-            result = conn.send_command(cmd)
+            result = safe_send_command(
+                conn,
+                cmd,
+                olt_ip,
+                phase="get_pon_info",
+                slot=slot,
+                pon=pon,
+            )
 
             parsed = parse_ont_summary(result, slot, pon)
             if parsed:
@@ -524,11 +597,32 @@ def _do_collect(ip: str) -> Dict[str, Any]:
     try:
         device = build_device(ip)
 
-        conn = ConnectHandler(**device)
-        conn.enable()
+        try:
+            conn = ConnectHandler(**device)
+        except Exception as e:
+            log_event(
+                "olt_connection_error",
+                ip=ip,
+                status="error",
+                phase="connect",
+                error=str(e),
+            )
+            raise
 
-        boards = GetBoards(conn)
-        pon_info = GetPonInfo(conn, boards)
+        try:
+            conn.enable()
+        except Exception as e:
+            log_event(
+                "olt_connection_error",
+                ip=ip,
+                status="error",
+                phase="enable",
+                error=str(e),
+            )
+            raise
+
+        boards = GetBoards(conn, ip)
+        pon_info = GetPonInfo(conn, ip, boards)
         save_result = SavePonInfo(ip, pon_info)
 
         duration = time.perf_counter() - start
@@ -540,7 +634,6 @@ def _do_collect(ip: str) -> Dict[str, Any]:
             "boards_count": len(boards),
             "processed": len(pon_info),
             "received": save_result["received"],
-            "removed": save_result["removed"],
             "duration_seconds": round(duration, 2),
         }
 
@@ -549,7 +642,16 @@ def _do_collect(ip: str) -> Dict[str, Any]:
 
     finally:
         if conn:
-            conn.disconnect()
+            try:
+                conn.disconnect()
+            except Exception as e:
+                log_event(
+                    "olt_disconnect_error",
+                    ip=ip,
+                    status="error",
+                    phase="disconnect",
+                    error=str(e),
+                )
 
 
 def run_collection_job(ip: str, token: str) -> None:
@@ -568,7 +670,6 @@ def run_collection_job(ip: str, token: str) -> None:
             duration_seconds=round(duration, 2),
             processed=result.get("processed"),
             received=result.get("received"),
-            removed=result.get("removed"),
         )
 
     except Exception as e:
@@ -606,7 +707,6 @@ def collect_olt(ip: str) -> Dict[str, Any]:
             duration_seconds=round(duration, 2),
             processed=result.get("processed"),
             received=result.get("received"),
-            removed=result.get("removed"),
         )
 
         return result
