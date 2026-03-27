@@ -7,10 +7,10 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import json
 import mysql.connector
 from mysql.connector import MySQLConnection
 from netmiko import ConnectHandler
-import json
 
 
 # CONFIG MYSQL
@@ -25,6 +25,7 @@ mysqlConfig = {
 EMPTY_PON_SENTINEL_ONT_ID = int(os.getenv("EMPTY_PON_SENTINEL_ONT_ID", "65535"))
 LOCK_ERRO_RETRY = int(os.getenv("LOCK_ERRO_RETRY", os.getenv("LOCK_ERROR_RETRY", "3")))
 LOCK_ERROR_RETRY_SLEEP = float(os.getenv("LOCK_ERROR_RETRY_SLEEP", "1"))
+TRACE_OLT_PHASES = os.getenv("TRACE_OLT_PHASES", "1").strip().lower() in ("1", "true", "yes", "on")
 
 
 def get_db() -> MySQLConnection:
@@ -45,6 +46,11 @@ def log_event(message: str, **fields) -> None:
     }
     payload.update(fields)
     print(json.dumps(payload, ensure_ascii=False, default=str), flush=True)
+
+
+def trace_phase(message: str, **fields) -> None:
+    if TRACE_OLT_PHASES:
+        log_event(message, **fields)
 
 
 def build_device(olt_ip: str) -> Dict[str, Any]:
@@ -140,6 +146,13 @@ def GetBoards(conn, olt_ip: str) -> List[str]:
     boards = []
     cmd = "display board 0"
 
+    trace_phase(
+        "olt_phase_start",
+        ip=olt_ip,
+        phase="get_boards",
+        command=cmd,
+    )
+
     result = safe_send_command(conn, cmd, olt_ip, phase="get_boards")
 
     for line in result.splitlines():
@@ -164,6 +177,14 @@ def GetBoards(conn, olt_ip: str) -> List[str]:
         ):
             boards.append(slot)
 
+    trace_phase(
+        "olt_phase_ok",
+        ip=olt_ip,
+        phase="get_boards",
+        boards_count=len(boards),
+        boards=boards,
+    )
+
     time.sleep(1)
     return boards
 
@@ -179,7 +200,6 @@ def parse_ont_summary(result: str, slot: str, pon: int) -> List[Dict[str, Any]]:
         if not line or line.startswith("----"):
             continue
 
-        # Detecta início da tabela de estado
         if line.startswith("ONT") and "Run" in line and "State" not in line:
             section = "state_header"
             continue
@@ -188,7 +208,6 @@ def parse_ont_summary(result: str, slot: str, pon: int) -> List[Dict[str, Any]]:
             section = "state"
             continue
 
-        # Detecta início da tabela de detalhes
         if line.startswith("ONT") and "SN" in line and "Rx/Tx" in line:
             section = "detail_header"
             continue
@@ -197,7 +216,6 @@ def parse_ont_summary(result: str, slot: str, pon: int) -> List[Dict[str, Any]]:
             section = "detail"
             continue
 
-        # Linhas da tabela de estado
         if section == "state" and line and line[0].isdigit():
             parts = line.split(None, 6)
 
@@ -217,7 +235,6 @@ def parse_ont_summary(result: str, slot: str, pon: int) -> List[Dict[str, Any]]:
 
             continue
 
-        # Linhas da tabela de detalhes
         if section == "detail" and line and line[0].isdigit():
             parts = line.split(None, 5)
 
@@ -299,7 +316,7 @@ def SavePonInfo(olt_ip: str, ponInfo: List[Dict[str, Any]]) -> Dict[str, int]:
     if not ponInfo:
         raise Exception("Coleta retornou vazia. Sincronização cancelada para evitar deleções indevidas.")
 
-    sql_upsert = """
+    sql_upsert = '''
     INSERT INTO ont_status (
         ip, slot, pon, ont_id, port, sn, run_state, last_down_cause,
         last_uptime, last_downtime, rx_power_dbm, tx_power_dbm,
@@ -322,7 +339,7 @@ def SavePonInfo(olt_ip: str, ponInfo: List[Dict[str, Any]]) -> Dict[str, int]:
         ont_type = VALUES(ont_type),
         description = VALUES(description),
         updated_at = CURRENT_TIMESTAMP
-    """
+    '''
 
     values = []
     found_keys = set()
@@ -360,11 +377,27 @@ def SavePonInfo(olt_ip: str, ponInfo: List[Dict[str, Any]]) -> Dict[str, int]:
         conn_db = None
         cursor = None
         try:
+            trace_phase(
+                "db_save_start",
+                ip=olt_ip,
+                attempt=attempt + 1,
+                max_retries=LOCK_ERRO_RETRY,
+                rows=len(values),
+            )
+
             conn_db = get_db()
             cursor = conn_db.cursor()
             conn_db.start_transaction()
             cursor.executemany(sql_upsert, values)
             conn_db.commit()
+
+            trace_phase(
+                "db_save_ok",
+                ip=olt_ip,
+                attempt=attempt + 1,
+                rows=len(values),
+                received=len(found_keys),
+            )
 
             if attempt > 0:
                 log_event(
@@ -444,7 +477,24 @@ def GetPonInfo(conn, olt_ip: str, slots: List[str]) -> List[Dict[str, Any]]:
     sleep_pons = float(os.getenv("SLEEP_PONS", "0"))
     sleep_boards = float(os.getenv("SLEEP_BOARDS", "0"))
 
+    trace_phase(
+        "olt_phase_start",
+        ip=olt_ip,
+        phase="get_pon_info",
+        slots=slots,
+        boards_count=len(slots),
+    )
+
     for slot in slots:
+        trace_phase(
+            "olt_slot_start",
+            ip=olt_ip,
+            phase="get_pon_info",
+            slot=slot,
+        )
+
+        slot_count_before = len(ponInfo)
+
         for pon in range(0, 16):
             cmd = f"display ont info summary 0/{slot}/{pon} | no-more"
             result = safe_send_command(
@@ -465,8 +515,23 @@ def GetPonInfo(conn, olt_ip: str, slots: List[str]) -> List[Dict[str, Any]]:
             if sleep_pons > 0:
                 time.sleep(sleep_pons)
 
+        trace_phase(
+            "olt_slot_ok",
+            ip=olt_ip,
+            phase="get_pon_info",
+            slot=slot,
+            records_added=len(ponInfo) - slot_count_before,
+        )
+
         if sleep_boards > 0:
             time.sleep(sleep_boards)
+
+    trace_phase(
+        "olt_phase_ok",
+        ip=olt_ip,
+        phase="get_pon_info",
+        processed=len(ponInfo),
+    )
 
     return ponInfo
 
@@ -597,8 +662,10 @@ def _do_collect(ip: str) -> Dict[str, Any]:
     try:
         device = build_device(ip)
 
+        trace_phase("olt_phase_start", ip=ip, phase="connect")
         try:
             conn = ConnectHandler(**device)
+            trace_phase("olt_phase_ok", ip=ip, phase="connect")
         except Exception as e:
             log_event(
                 "olt_connection_error",
@@ -609,8 +676,10 @@ def _do_collect(ip: str) -> Dict[str, Any]:
             )
             raise
 
+        trace_phase("olt_phase_start", ip=ip, phase="enable")
         try:
             conn.enable()
+            trace_phase("olt_phase_ok", ip=ip, phase="enable")
         except Exception as e:
             log_event(
                 "olt_connection_error",
@@ -642,8 +711,10 @@ def _do_collect(ip: str) -> Dict[str, Any]:
 
     finally:
         if conn:
+            trace_phase("olt_phase_start", ip=ip, phase="disconnect")
             try:
                 conn.disconnect()
+                trace_phase("olt_phase_ok", ip=ip, phase="disconnect")
             except Exception as e:
                 log_event(
                     "olt_disconnect_error",
