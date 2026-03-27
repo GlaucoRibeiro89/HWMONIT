@@ -21,6 +21,16 @@ class CollectRequest(BaseModel):
     ip: IPvAnyAddress
 
 
+def log_event(message: str, **fields) -> None:
+    payload = {
+        "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "service": "collector-api",
+        "message": message,
+    }
+    payload.update(fields)
+    print(json.dumps(payload, ensure_ascii=False, default=str), flush=True)
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -46,6 +56,12 @@ def collect(payload: CollectRequest, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail=str(e))
 
     background_tasks.add_task(run_collection_job, ip, token)
+
+    log_event(
+        "collector_api",
+        ip=ip,
+        "status": "accepted",
+    )
 
     return {
         "success": True,

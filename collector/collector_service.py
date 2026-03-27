@@ -369,7 +369,6 @@ def SavePonInfo(olt_ip: str, ponInfo: List[Dict[str, Any]]) -> Dict[str, int]:
 
             return {
                 "received": len(found_keys),
-                "removed": 0,
             }
 
         except MySQLError as e:
@@ -573,7 +572,6 @@ def _do_collect(ip: str) -> Dict[str, Any]:
             "boards_count": len(boards),
             "processed": len(pon_info),
             "received": save_result["received"],
-            "removed": save_result["removed"],
             "duration_seconds": round(duration, 2),
         }
 
@@ -601,7 +599,6 @@ def run_collection_job(ip: str, token: str) -> None:
             duration_seconds=round(duration, 2),
             processed=result.get("processed"),
             received=result.get("received"),
-            removed=result.get("removed"),
         )
 
     except Exception as e:
@@ -639,7 +636,6 @@ def collect_olt(ip: str) -> Dict[str, Any]:
             duration_seconds=round(duration, 2),
             processed=result.get("processed"),
             received=result.get("received"),
-            removed=result.get("removed"),
         )
 
         return result
