@@ -20,6 +20,11 @@ services:
       timeout: 5s
       retries: 20
       start_period: 20s
+    logging:
+      driver: "local"
+      options:
+        max-size: "20m"
+        max-file: "1"
     networks:
       - hwmonit_net
 
@@ -46,6 +51,11 @@ services:
       retries: 20
       start_period: 20s
     command: ["python3", "-m", "uvicorn", "collector.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    logging:
+      driver: "local"
+      options:
+        max-size: "20m"
+        max-file: "1"    
     networks:
       - hwmonit_net
 
@@ -74,6 +84,11 @@ services:
       retries: 20
       start_period: 20s
     command: ["python3", "-m", "uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    logging:
+      driver: "local"
+      options:
+        max-size: "20m"
+        max-file: "1"
     networks:
       - hwmonit_net
 
@@ -112,6 +127,11 @@ services:
     volumes:
       - ./:/app
     command: ["python3", "-m", "orchestrator.orchestrator_service"]
+    logging:
+      driver: "local"
+      options:
+        max-size: "20m"
+        max-file: "1"
     networks:
       - hwmonit_net
 
