@@ -25,6 +25,7 @@ services:
       options:
         max-size: "20m"
         max-file: "1"
+        compress: "false"
     networks:
       - hwmonit_net
 
@@ -55,7 +56,8 @@ services:
       driver: "local"
       options:
         max-size: "20m"
-        max-file: "1"    
+        max-file: "1" 
+        compress: "false"   
     networks:
       - hwmonit_net
 
@@ -89,6 +91,7 @@ services:
       options:
         max-size: "20m"
         max-file: "1"
+        compress: "false"
     networks:
       - hwmonit_net
 
@@ -105,6 +108,12 @@ services:
         condition: service_healthy
     env_file:
       - .env
+    logging:
+      driver: "local"
+      options:
+        max-size: "20m"
+        max-file: "1"
+        compress: "false"
     networks:
       - hwmonit_net
 
@@ -132,6 +141,7 @@ services:
       options:
         max-size: "20m"
         max-file: "1"
+        compress: "false"
     networks:
       - hwmonit_net
 
