@@ -1,6 +1,6 @@
 services:
   hwmonit_db:
-    cpus: "1"
+    #cpus: "1"
     mem_limit: 1024m
     image: mysql:8.4
     container_name: hwmonit-db
@@ -30,7 +30,7 @@ services:
       - hwmonit_net
 
   hwmonit_collector:
-    cpus: "1"
+    #cpus: "1"
     mem_limit: 256m
     build:
       context: .
@@ -62,7 +62,7 @@ services:
       - hwmonit_net
 
   hwmonit_api:
-    cpus: "1"
+    #cpus: "1"
     mem_limit: 256m
     build:
       context: .
@@ -96,7 +96,7 @@ services:
       - hwmonit_net
 
   hwmonit_housekeeper:
-    cpus: "1"
+    #cpus: "1"
     mem_limit: 256m
     build:
       context: .
@@ -118,7 +118,7 @@ services:
       - hwmonit_net
 
   hwmonit_orchestrator:
-    cpus: "1"
+    #cpus: "1"
     mem_limit: 256m
     build:
       context: .
