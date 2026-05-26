@@ -217,21 +217,32 @@ def parse_ont_summary(result: str, slot: str, pon: int) -> List[Dict[str, Any]]:
             continue
 
         if section == "state" and line and line[0].isdigit():
-            parts = line.split(None, 6)
+            parts = line.split()
 
-            if len(parts) >= 7:
-                ont_id = int(parts[0])
-                run_state = normalize_value(parts[1])
-                last_uptime = normalize_value(f"{parts[2]} {parts[3]}")
+            ont_id = int(parts[0])
+            run_state = normalize_value(parts[1])
+            last_uptime = normalize_value(f"{parts[2]} {parts[3]}")
+
+            # Caso 1: downtime completo + causa
+            if len(parts) >= 7 and parts[4] != "-":
                 last_downtime = normalize_value(f"{parts[4]} {parts[5]}")
-                last_down_cause = normalize_value(parts[6])
+                last_down_cause = normalize_value(" ".join(parts[6:]))
 
-                state_map[ont_id] = {
-                    "run_state": run_state,
-                    "last_uptime": last_uptime,
-                    "last_downtime": last_downtime,
-                    "last_down_cause": last_down_cause,
-                }
+            # Caso 2: downtime/cause em branco, vindo como "-"
+            elif len(parts) >= 6 and parts[4] == "-":
+                last_downtime = None
+                last_down_cause = None
+
+            else:
+                last_downtime = None
+                last_down_cause = None
+
+            state_map[ont_id] = {
+                "run_state": run_state,
+                "last_uptime": last_uptime,
+                "last_downtime": last_downtime,
+                "last_down_cause": last_down_cause,
+            }
 
             continue
 
